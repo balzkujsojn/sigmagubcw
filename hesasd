@@ -357,7 +357,7 @@ local function createGUI()
     titleBarCorners.CornerRadius = UDim.new(8, 8)
     titleBarCorners.Parent = titleBar
     
-    -- YinYang Icon (☯) with rotation - Square 24x24
+    -- YinYang Icon (☯︎) with rotation - Square 24x24
     local iconContainer = Instance.new("Frame")
     iconContainer.Name = "IconContainer"
     iconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -369,7 +369,7 @@ local function createGUI()
     yinyangIcon.Name = "YinYangIcon"
     yinyangIcon.Size = UDim2.new(1, 0, 1, 0)
     yinyangIcon.BackgroundTransparency = 1
-    yinyangIcon.Text = "☯"
+    yinyangIcon.Text = "☯︎"
     yinyangIcon.TextColor3 = COLORS.White
     yinyangIcon.Font = Enum.Font.GothamBold
     yinyangIcon.TextSize = 22  -- Larger font for square icon
@@ -568,7 +568,7 @@ local function createGUI()
     minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
     minimizedYinYangIcon.Size = UDim2.new(1, 0, 1, 0)
     minimizedYinYangIcon.BackgroundTransparency = 1
-    minimizedYinYangIcon.Text = "☯"
+    minimizedYinYangIcon.Text = "☯︎"
     minimizedYinYangIcon.TextColor3 = COLORS.White
     minimizedYinYangIcon.Font = Enum.Font.GothamBold
     minimizedYinYangIcon.TextSize = 22  -- Same size as main icon
