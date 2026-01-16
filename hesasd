@@ -357,7 +357,7 @@ local function createGUI()
     titleBarCorners.CornerRadius = UDim.new(8, 8)
     titleBarCorners.Parent = titleBar
     
-    -- Icon Container (PNG Image) - Square 24x24
+    -- Icon Container - Square 24x24
     local iconContainer = Instance.new("Frame")
     iconContainer.Name = "IconContainer"
     iconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -365,11 +365,14 @@ local function createGUI()
     iconContainer.BackgroundTransparency = 1
     iconContainer.Parent = titleBar
     
+    -- Main Icon (Size: 70% of container, centered)
     local yinyangIcon = Instance.new("ImageLabel")
     yinyangIcon.Name = "YinYangIcon"
-    yinyangIcon.Size = UDim2.new(1, 0, 1, 0)
+    yinyangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+    yinyangIcon.Position = UDim2.new(0.15, 0, 0.15, 0) -- Centers the 70% size in 100% container
+    yinyangIcon.AnchorPoint = Vector2.new(0, 0)
     yinyangIcon.BackgroundTransparency = 1
-    yinyangIcon.Image = "rbxassetid://132408240384029"
+    yinyangIcon.Image = "rbxassetid://7019430519"
     yinyangIcon.ScaleType = Enum.ScaleType.Fit
     yinyangIcon.Parent = iconContainer
     
@@ -561,11 +564,14 @@ local function createGUI()
     minimizedIconContainer.BackgroundTransparency = 1
     minimizedIconContainer.Parent = minimizedBar
     
+    -- Minimized Icon (Size: 70% of container, centered)
     local minimizedYinYangIcon = Instance.new("ImageLabel")
     minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
-    minimizedYinYangIcon.Size = UDim2.new(1, 0, 1, 0)
+    minimizedYinYangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+    minimizedYinYangIcon.Position = UDim2.new(0.15, 0, 0.15, 0) -- Centers the 70% size in 100% container
+    minimizedYinYangIcon.AnchorPoint = Vector2.new(0, 0)
     minimizedYinYangIcon.BackgroundTransparency = 1
-    minimizedYinYangIcon.Image = "rbxassetid://132408240384029"
+    minimizedYinYangIcon.Image = "rbxassetid://7019430519"
     minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
     minimizedYinYangIcon.Parent = minimizedIconContainer
     
