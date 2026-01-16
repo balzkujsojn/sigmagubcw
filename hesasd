@@ -369,7 +369,7 @@ local function createGUI()
     yinyangIcon.Name = "YinYangIcon"
     yinyangIcon.Size = UDim2.new(1, 0, 1, 0)
     yinyangIcon.BackgroundTransparency = 1
-    yinyangIcon.Image = "rbxassetid://7663328585"
+    yinyangIcon.Image = "rbxassetid://132408240384029"
     yinyangIcon.ScaleType = Enum.ScaleType.Fit
     yinyangIcon.Parent = iconContainer
     
@@ -565,7 +565,7 @@ local function createGUI()
     minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
     minimizedYinYangIcon.Size = UDim2.new(1, 0, 1, 0)
     minimizedYinYangIcon.BackgroundTransparency = 1
-    minimizedYinYangIcon.Image = "rbxassetid://7663328585"
+    minimizedYinYangIcon.Image = "rbxassetid://132408240384029"
     minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
     minimizedYinYangIcon.Parent = minimizedIconContainer
     
