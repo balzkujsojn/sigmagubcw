@@ -19,7 +19,7 @@ local IGNORE_ENEMIES = {
     ["Fiscus"] = true,
     ["Shellshock"] = true,
     ["The Last Spirit of Christmas"] = true,
-    ["Present Mimic"} = true
+    ["Present Mimic"] = true
 }
 
 local State = {
