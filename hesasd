@@ -21,7 +21,7 @@ local IGNORE_ENEMIES = {
 }
 
 local State = {
-    isRunning = true,  -- Changed from false to true (starts ON)
+    isRunning = false,  -- Changed from false to true (starts ON)
     lastFireTime = 0,
     currentTarget = nil,
     chargeValue = 100,
@@ -31,7 +31,7 @@ local State = {
     maxShootingErrors = 10,
     lastToolEquipTime = 0,
     toolEquipCooldown = 2,
-    autoEquip = true  -- Added auto-equip setting
+    autoEquip = false  -- Added auto-equip setting
 }
 
 local cache = {
