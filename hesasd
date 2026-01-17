@@ -405,7 +405,7 @@ local function createGUI()
     
     createRoundedCorners(titleBar, 8)
     
-    -- YinYang Icon (☯) with rotation - Square 24x24
+    -- YinYang Icon Container (from your script)
     local iconContainer = Instance.new("Frame")
     iconContainer.Name = "IconContainer"
     iconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -413,15 +413,14 @@ local function createGUI()
     iconContainer.BackgroundTransparency = 1
     iconContainer.Parent = titleBar
     
-    local yinyangIcon = Instance.new("TextLabel")
+    local yinyangIcon = Instance.new("ImageLabel")
     yinyangIcon.Name = "YinYangIcon"
-    yinyangIcon.Size = UDim2.new(1, 0, 1, 0)
+    yinyangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+    yinyangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
+    yinyangIcon.AnchorPoint = Vector2.new(0, 0)
     yinyangIcon.BackgroundTransparency = 1
-    yinyangIcon.Text = "☯"
-    yinyangIcon.TextColor3 = COLORS.White
-    yinyangIcon.Font = Enum.Font.GothamBold
-    yinyangIcon.TextSize = 22  -- Larger font for square icon
-    yinyangIcon.TextScaled = false
+    yinyangIcon.Image = "rbxassetid://7019430519"
+    yinyangIcon.ScaleType = Enum.ScaleType.Fit
     yinyangIcon.Parent = iconContainer
     
     -- Start rotation animation for the YinYang icon
@@ -686,7 +685,7 @@ local function createGUI()
     createRoundedCorners(minimizedBar, 8)
     createStroke(minimizedBar, 1, COLORS.Border)
     
-    -- Rotating icon in minimized bar - Square 24x24
+    -- Rotating icon in minimized bar
     local minimizedIconContainer = Instance.new("Frame")
     minimizedIconContainer.Name = "MinimizedIconContainer"
     minimizedIconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -694,15 +693,14 @@ local function createGUI()
     minimizedIconContainer.BackgroundTransparency = 1
     minimizedIconContainer.Parent = minimizedBar
     
-    local minimizedYinYangIcon = Instance.new("TextLabel")
+    local minimizedYinYangIcon = Instance.new("ImageLabel")
     minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
-    minimizedYinYangIcon.Size = UDim2.new(1, 0, 1, 0)
+    minimizedYinYangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+    minimizedYinYangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
+    minimizedYinYangIcon.AnchorPoint = Vector2.new(0, 0)
     minimizedYinYangIcon.BackgroundTransparency = 1
-    minimizedYinYangIcon.Text = "☯"
-    minimizedYinYangIcon.TextColor3 = COLORS.White
-    minimizedYinYangIcon.Font = Enum.Font.GothamBold
-    minimizedYinYangIcon.TextSize = 22  -- Same size as main icon
-    minimizedYinYangIcon.TextScaled = false
+    minimizedYinYangIcon.Image = "rbxassetid://7019430519"
+    minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
     minimizedYinYangIcon.Parent = minimizedIconContainer
     
     -- Start rotation animation for minimized icon
