@@ -31,7 +31,7 @@ local State = {
     maxShootingErrors = 10,
     lastToolEquipTime = 0,
     toolEquipCooldown = 2,
-    autoEquip = false  -- Added auto-equip setting
+    autoEquip = true  -- Added auto-equip setting
 }
 
 local cache = {
