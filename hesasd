@@ -4,7 +4,6 @@ repeat task.wait() until Players.LocalPlayer
 local player = Players.LocalPlayer
 
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local CONFIG = {
@@ -262,18 +261,9 @@ local function attemptFire()
         return 
     end
     
-    local toolData
-    local toolSuccess, toolResult = pcall(function()
-        toolData = getValidTool()
-        return toolData
-    end)
-    
-    if not toolSuccess then
+    local toolData = getValidTool()
+    if not toolData then 
         State.shootingErrors = State.shootingErrors + 1
-        return
-    end
-    
-    if not toolResult then 
         return 
     end
     
@@ -784,14 +774,14 @@ local function createGUI()
             autoEquipToggle.BackgroundColor3 = COLORS.White
             autoEquipToggle.TextColor3 = COLORS.Black
             autoEquipToggle.Text = "ON"
-            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15), {
+            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Color = COLORS.Black
             }):Play()
         else
             autoEquipToggle.BackgroundColor3 = COLORS.Black
             autoEquipToggle.TextColor3 = COLORS.White
             autoEquipToggle.Text = "OFF"
-            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15), {
+            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Color = COLORS.White
             }):Play()
         end
