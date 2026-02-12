@@ -7,870 +7,877 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local CONFIG = {
-    FIRE_RATE = 0.05,
-    TOOL_NAME = "Equinox Cannon",
-    REMOTE_NAME = "RemoteFunction"
+FIRE_RATE = 0.05,
+TOOL_NAME = "Equinox Cannon",
+REMOTE_NAME = "RemoteFunction"
 }
 
 local IGNORE_ENEMIES = {
-    ["Champion of the Equinox"] = true,
-    ["Fiscus"] = true,
-    ["Shellshock"] = true
+["Champion of the Equinox"] = true,
+["Fiscus"] = true,
+["Shellshock"] = true
 }
 
 local State = {
-    isRunning = true,
-    lastFireTime = 0,
-    currentTarget = nil,
-    chargeValue = 100,
-    playerAlive = true,
-    shootingEnabled = true,
-    shootingErrors = 0,
-    maxShootingErrors = 10,
-    lastToolEquipTime = 0,
-    toolEquipCooldown = 2,
-    autoEquip = true
+isRunning = true,
+lastFireTime = 0,
+currentTarget = nil,
+chargeValue = 100,
+playerAlive = true,
+shootingEnabled = true,
+shootingErrors = 0,
+maxShootingErrors = 10,
+lastToolEquipTime = 0,
+toolEquipCooldown = 2,
+autoEquip = true
 }
 
 local cache = {
-    workspaceChildren = {},
-    lastWorkspaceUpdate = 0,
-    workspaceUpdateInterval = 0.5
+workspaceChildren = {},
+lastWorkspaceUpdate = 0,
+workspaceUpdateInterval = 0.5
 }
 
 local COLORS = {
-    Background = Color3.fromRGB(25, 25, 25),
-    Card = Color3.fromRGB(35, 35, 35),
-    Text = Color3.fromRGB(240, 240, 240),
-    TextSecondary = Color3.fromRGB(180, 180, 180),
-    White = Color3.fromRGB(255, 255, 255),
-    Black = Color3.fromRGB(30, 30, 30),
-    Border = Color3.fromRGB(60, 60, 60)
+Background = Color3.fromRGB(25, 25, 25),
+Card = Color3.fromRGB(35, 35, 35),
+Text = Color3.fromRGB(240, 240, 240),
+TextSecondary = Color3.fromRGB(180, 180, 180),
+White = Color3.fromRGB(255, 255, 255),
+Black = Color3.fromRGB(30, 30, 30),
+Border = Color3.fromRGB(60, 60, 60)
 }
 
 local function createRoundedCorners(parent, cornerRadius)
-    local uicorner = Instance.new("UICorner")
-    uicorner.CornerRadius = UDim.new(0, cornerRadius)
-    uicorner.Parent = parent
-    return uicorner
+local uicorner = Instance.new("UICorner")
+uicorner.CornerRadius = UDim.new(0, cornerRadius)
+uicorner.Parent = parent
+return uicorner
 end
 
 local function createStroke(parent, thickness, color)
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = thickness
-    stroke.Color = color
-    stroke.Transparency = 0.8
-    stroke.Parent = parent
-    return stroke
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = thickness
+stroke.Color = color
+stroke.Transparency = 0.8
+stroke.Parent = parent
+return stroke
 end
 
 local function isPlayerAlive()
-    if not player.Character then return false end
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return false end
-    return humanoid.Health > 0
+if not player.Character then return false end
+local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+if not humanoid then return false end
+return humanoid.Health > 0
 end
 
 local function autoEquipTool()
-    if not State.autoEquip or not State.isRunning or not State.playerAlive then
-        return false
-    end
-    
-    local now = tick()
-    if now - State.lastToolEquipTime < State.toolEquipCooldown then
-        return false
-    end
-    
-    local character = player.Character
-    if not character then 
-        return false
-    end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then 
-        return false
-    end
-    
-    local tool = character:FindFirstChild(CONFIG.TOOL_NAME)
-    if tool then
-        State.lastToolEquipTime = now
-        return true
-    end
-    
-    local backpack = player:FindFirstChild("Backpack")
-    if backpack then
-        tool = backpack:FindFirstChild(CONFIG.TOOL_NAME)
-        if tool then
-            tool.Parent = character
-            task.wait(0.1)
-            humanoid:EquipTool(tool)
-            State.lastToolEquipTime = now
-            return true
-        end
-    end
-    
+if not State.autoEquip or not State.isRunning or not State.playerAlive then
+return false
+end
+
+local now = tick()
+if now - State.lastToolEquipTime < State.toolEquipCooldown then
     return false
 end
 
+local character = player.Character
+if not character then 
+    return false
+end
+
+local humanoid = character:FindFirstChildOfClass("Humanoid")
+if not humanoid then 
+    return false
+end
+
+local tool = character:FindFirstChild(CONFIG.TOOL_NAME)
+if tool then
+    State.lastToolEquipTime = now
+    return true
+end
+
+local backpack = player:FindFirstChild("Backpack")
+if backpack then
+    tool = backpack:FindFirstChild(CONFIG.TOOL_NAME)
+    if tool then
+        tool.Parent = character
+        task.wait(0.1)
+        humanoid:EquipTool(tool)
+        State.lastToolEquipTime = now
+        return true
+    end
+end
+
+return false
+
+end
+
 local function getTargetPart(model)
-    local possibleParts = {
-        "HumanoidRootPart",
-        "Head",
-        "Torso", 
-        "UpperTorso",
-        "LowerTorso",
-        "Chest",
-        "Body"
-    }
-    
-    for _, partName in ipairs(possibleParts) do
-        local part = model:FindFirstChild(partName)
-        if part and part:IsA("BasePart") then
-            return part
-        end
+local possibleParts = {
+"HumanoidRootPart",
+"Head",
+"Torso",
+"UpperTorso",
+"LowerTorso",
+"Chest",
+"Body"
+}
+
+for _, partName in ipairs(possibleParts) do
+    local part = model:FindFirstChild(partName)
+    if part and part:IsA("BasePart") then
+        return part
     end
-    
-    for _, child in ipairs(model:GetChildren()) do
-        if child:IsA("BasePart") then
-            return child
-        end
+end
+
+for _, child in ipairs(model:GetChildren()) do
+    if child:IsA("BasePart") then
+        return child
     end
-    
-    return nil
+end
+
+return nil
+
 end
 
 local function findEnemies()
-    if not State.playerAlive or not State.shootingEnabled then 
-        return {}
-    end
-    
-    local now = tick()
-    
-    if now - cache.lastWorkspaceUpdate > cache.workspaceUpdateInterval then
-        cache.workspaceChildren = workspace:GetChildren()
-        cache.lastWorkspaceUpdate = now
-    end
-    
-    local enemies = {}
-    
-    for _, model in ipairs(cache.workspaceChildren) do
-        if model:IsA("Model") and model.Parent == workspace then
-            local humanoid = model:FindFirstChildOfClass("Humanoid")
+if not State.playerAlive or not State.shootingEnabled then
+return {}
+end
+
+local now = tick()
+
+if now - cache.lastWorkspaceUpdate > cache.workspaceUpdateInterval then
+    cache.workspaceChildren = workspace:GetChildren()
+    cache.lastWorkspaceUpdate = now
+end
+
+local enemies = {}
+
+for _, model in ipairs(cache.workspaceChildren) do
+    if model:IsA("Model") and model.Parent == workspace then
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        
+        if humanoid and humanoid.Health > 0 then
+            if IGNORE_ENEMIES[model.Name] then
+                continue
+            end
             
-            if humanoid and humanoid.Health > 0 then
-                if IGNORE_ENEMIES[model.Name] then
-                    continue
+            local isPlayerCharacter = false
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character == model then
+                    isPlayerCharacter = true
+                    break
                 end
-                
-                local isPlayerCharacter = false
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr.Character == model then
-                        isPlayerCharacter = true
-                        break
-                    end
-                end
-                
-                if not isPlayerCharacter then
-                    local targetPart = getTargetPart(model)
-                    if targetPart then
-                        table.insert(enemies, {
-                            Model = model,
-                            Humanoid = humanoid,
-                            TargetPart = targetPart,
-                            Position = targetPart.Position,
-                            Name = model.Name
-                        })
-                    end
+            end
+            
+            if not isPlayerCharacter then
+                local targetPart = getTargetPart(model)
+                if targetPart then
+                    table.insert(enemies, {
+                        Model = model,
+                        Humanoid = humanoid,
+                        TargetPart = targetPart,
+                        Position = targetPart.Position,
+                        Name = model.Name
+                    })
                 end
             end
         end
     end
-    
-    return enemies
+end
+
+return enemies
+
 end
 
 local function selectTarget()
-    if not State.playerAlive or not State.shootingEnabled then 
-        return nil
-    end
-    
-    local enemies = findEnemies()
-    
-    if #enemies == 0 then
-        return nil
-    end
-    
-    local character = player.Character
-    if not character then 
-        return enemies[1] 
-    end
-    
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then 
-        return enemies[1] 
-    end
-    
-    local playerPos = humanoidRootPart.Position
-    local closestEnemy = enemies[1]
-    local closestDistance = math.huge
-    
-    for _, enemy in ipairs(enemies) do
-        local distance = (enemy.Position - playerPos).Magnitude
-        if distance < closestDistance then
-            closestDistance = distance
-            closestEnemy = enemy
-        end
-    end
-    
-    return closestEnemy
+if not State.playerAlive or not State.shootingEnabled then
+return nil
 end
 
-local function getValidTool()
-    if not State.playerAlive or not State.shootingEnabled then 
-        return nil 
-    end
-    
-    local character = player.Character
-    if not character then 
-        return nil 
-    end
-    
-    local tool = character:FindFirstChild(CONFIG.TOOL_NAME)
-    if not tool then 
-        return nil 
-    end
-    
-    local remote = tool:FindFirstChild(CONFIG.REMOTE_NAME)
-    local handle = tool:FindFirstChild("Handle")
-    
-    if remote and handle and remote:IsA("RemoteFunction") then
-        return {Tool = tool, Remote = remote, Handle = handle}
-    end
-    
+local enemies = findEnemies()
+
+if #enemies == 0 then
     return nil
 end
 
+local character = player.Character
+if not character then 
+    return enemies[1] 
+end
+
+local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+if not humanoidRootPart then 
+    return enemies[1] 
+end
+
+local playerPos = humanoidRootPart.Position
+local closestEnemy = enemies[1]
+local closestDistance = math.huge
+
+for _, enemy in ipairs(enemies) do
+    local distance = (enemy.Position - playerPos).Magnitude
+    if distance < closestDistance then
+        closestDistance = distance
+        closestEnemy = enemy
+    end
+end
+
+return closestEnemy
+
+end
+
+local function getValidTool()
+if not State.playerAlive or not State.shootingEnabled then
+return nil
+end
+
+local character = player.Character
+if not character then 
+    return nil 
+end
+
+local tool = character:FindFirstChild(CONFIG.TOOL_NAME)
+if not tool then 
+    return nil 
+end
+
+local remote = tool:FindFirstChild(CONFIG.REMOTE_NAME)
+local handle = tool:FindFirstChild("Handle")
+
+if remote and handle and remote:IsA("RemoteFunction") then
+    return {Tool = tool, Remote = remote, Handle = handle}
+end
+
+return nil
+
+end
+
 local function attemptFire()
-    if not State.isRunning then 
-        return 
-    end
-    if not State.playerAlive or not State.shootingEnabled then 
-        return 
-    end
-    if not State.currentTarget then 
-        return 
-    end
-    
-    local toolData = getValidTool()
-    if not toolData then 
-        State.shootingErrors = State.shootingErrors + 1
-        return 
-    end
-    
-    local now = tick()
-    if now - State.lastFireTime < CONFIG.FIRE_RATE then 
-        return 
-    end
-    
-    State.lastFireTime = now
-    
-    local targetPart = State.currentTarget.TargetPart
-    if not targetPart then
-        return
-    end
-    
-    local targetPos = targetPart.Position
-    
-    local camera = workspace.CurrentCamera
-    if not camera then 
-        return 
-    end
-    
-    local cameraPosition = camera.CFrame.Position
-    local direction = (targetPos - cameraPosition).Unit
-    
-    local startPos = targetPos - (direction * 5)
-    local endPos = targetPos
-    
-    local fireSuccess = pcall(function()
-        toolData.Remote:InvokeServer("fire", {startPos, endPos, State.chargeValue})
-    end)
-    
-    if not fireSuccess then
-        State.shootingErrors = State.shootingErrors + 1
-        if State.shootingErrors > State.maxShootingErrors then
-            State.shootingEnabled = false
-            task.wait(3)
-            State.shootingEnabled = true
-            State.shootingErrors = 0
-        end
-    else
+if not State.isRunning then
+return
+end
+if not State.playerAlive or not State.shootingEnabled then
+return
+end
+if not State.currentTarget then
+return
+end
+
+local toolData = getValidTool()
+if not toolData then 
+    State.shootingErrors = State.shootingErrors + 1
+    return 
+end
+
+local now = tick()
+if now - State.lastFireTime < CONFIG.FIRE_RATE then 
+    return 
+end
+
+State.lastFireTime = now
+
+local targetPart = State.currentTarget.TargetPart
+if not targetPart then
+    return
+end
+
+local targetPos = targetPart.Position
+
+local camera = workspace.CurrentCamera
+if not camera then 
+    return 
+end
+
+local cameraPosition = camera.CFrame.Position
+local direction = (targetPos - cameraPosition).Unit
+
+local startPos = targetPos - (direction * 5)
+local endPos = targetPos
+
+local fireSuccess = pcall(function()
+    toolData.Remote:InvokeServer("fire", {startPos, endPos, State.chargeValue})
+end)
+
+if not fireSuccess then
+    State.shootingErrors = State.shootingErrors + 1
+    if State.shootingErrors > State.maxShootingErrors then
+        State.shootingEnabled = false
+        task.wait(3)
+        State.shootingEnabled = true
         State.shootingErrors = 0
     end
+else
+    State.shootingErrors = 0
+end
+
 end
 
 local function farmingLoop()
-    while State.isRunning do
-        State.playerAlive = isPlayerAlive()
-        
-        if State.playerAlive then
-            if State.autoEquip then
-                autoEquipTool()
-            end
-            
-            attemptFire()
-        else
-            State.currentTarget = nil
+while State.isRunning do
+State.playerAlive = isPlayerAlive()
+
+    if State.playerAlive then
+        if State.autoEquip then
+            autoEquipTool()
         end
         
-        RunService.Heartbeat:Wait()
+        attemptFire()
+    else
+        State.currentTarget = nil
     end
+    
+    RunService.Heartbeat:Wait()
+end
+
 end
 
 local function updateTargetLoop()
-    while State.isRunning do
-        if State.playerAlive and State.shootingEnabled then
-            local success, target = pcall(selectTarget)
-            if success then
-                State.currentTarget = target
-            end
-        else
-            State.currentTarget = nil
-        end
-        task.wait(0.3)
-    end
+while State.isRunning do
+if State.playerAlive and State.shootingEnabled then
+State.currentTarget = selectTarget()
+else
+State.currentTarget = nil
+end
+task.wait(0.3)
+end
 end
 
 local function createGUI()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "SexyBlaster9000"
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local gui = Instance.new("ScreenGui")
+gui.Name = "SexyBlaster9000"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+if gethui then
+    gui.Parent = gethui()
+elseif syn and syn.protect_gui then
+    syn.protect_gui(gui)
+    gui.Parent = game.CoreGui
+else
+    gui.Parent = game.CoreGui
+end
+
+local mainContainer = Instance.new("Frame")
+mainContainer.Name = "MainContainer"
+mainContainer.Size = UDim2.new(0, 300, 0, 180)
+mainContainer.Position = UDim2.new(0, 20, 0, 100)
+mainContainer.BackgroundColor3 = COLORS.Background
+mainContainer.BorderSizePixel = 0
+mainContainer.Active = true
+mainContainer.Draggable = true
+mainContainer.ClipsDescendants = true
+mainContainer.Parent = gui
+
+createRoundedCorners(mainContainer, 12)
+createStroke(mainContainer, 1, COLORS.Border)
+
+local mainGradient = Instance.new("UIGradient")
+mainGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 28)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 22, 22))
+})
+mainGradient.Rotation = 90
+mainGradient.Parent = mainContainer
+
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 32)
+titleBar.BackgroundColor3 = COLORS.Card
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainContainer
+
+createRoundedCorners(titleBar, 12)
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 45)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(32, 32, 32))
+})
+titleGradient.Parent = titleBar
+
+local iconContainer = Instance.new("Frame")
+iconContainer.Name = "IconContainer"
+iconContainer.Size = UDim2.new(0, 24, 0, 24)
+iconContainer.Position = UDim2.new(0, 8, 0.5, -12)
+iconContainer.BackgroundTransparency = 1
+iconContainer.Parent = titleBar
+
+local yinyangIcon = Instance.new("ImageLabel")
+yinyangIcon.Name = "YinYangIcon"
+yinyangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+yinyangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
+yinyangIcon.AnchorPoint = Vector2.new(0, 0)
+yinyangIcon.BackgroundTransparency = 1
+yinyangIcon.Image = "rbxassetid://7019430519"
+yinyangIcon.ScaleType = Enum.ScaleType.Fit
+yinyangIcon.Parent = iconContainer
+
+task.spawn(function()
+    while yinyangIcon and yinyangIcon.Parent do
+        TweenService:Create(yinyangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
+            Rotation = 360
+        }):Play()
+        task.wait(4)
+        yinyangIcon.Rotation = 0
+    end
+end)
+
+local titleText = Instance.new("TextLabel")
+titleText.Name = "TitleText"
+titleText.Size = UDim2.new(1, -120, 1, 0)
+titleText.Position = UDim2.new(0, 38, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "SexyBlaster9000"
+titleText.TextColor3 = COLORS.Text
+titleText.Font = Enum.Font.GothamMedium
+titleText.TextSize = 14
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
+
+local settingsButton = Instance.new("TextButton")
+settingsButton.Name = "SettingsButton"
+settingsButton.Size = UDim2.new(0, 24, 0, 24)
+settingsButton.Position = UDim2.new(1, -56, 0.5, -12)
+settingsButton.BackgroundColor3 = COLORS.Card
+settingsButton.BorderSizePixel = 0
+settingsButton.Text = "⚙"
+settingsButton.TextColor3 = COLORS.TextSecondary
+settingsButton.Font = Enum.Font.GothamBold
+settingsButton.TextSize = 14
+settingsButton.AutoButtonColor = false
+settingsButton.Parent = titleBar
+
+createRoundedCorners(settingsButton, 6)
+createStroke(settingsButton, 1, COLORS.Border)
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Name = "MinimizeButton"
+minimizeButton.Size = UDim2.new(0, 24, 0, 24)
+minimizeButton.Position = UDim2.new(1, -28, 0.5, -12)
+minimizeButton.BackgroundColor3 = COLORS.Card
+minimizeButton.BorderSizePixel = 0
+minimizeButton.Text = "─"
+minimizeButton.TextColor3 = COLORS.TextSecondary
+minimizeButton.Font = Enum.Font.GothamBold
+minimizeButton.TextSize = 16
+minimizeButton.AutoButtonColor = false
+minimizeButton.Parent = titleBar
+
+createRoundedCorners(minimizeButton, 6)
+createStroke(minimizeButton, 1, COLORS.Border)
+
+local contentArea = Instance.new("Frame")
+contentArea.Name = "ContentArea"
+contentArea.Size = UDim2.new(1, -16, 1, -40)
+contentArea.Position = UDim2.new(0, 8, 0, 38)
+contentArea.BackgroundTransparency = 1
+contentArea.Parent = mainContainer
+
+local statusFrame = Instance.new("Frame")
+statusFrame.Name = "StatusFrame"
+statusFrame.Size = UDim2.new(1, 0, 0, 50)
+statusFrame.BackgroundColor3 = COLORS.Card
+statusFrame.BorderSizePixel = 0
+statusFrame.Parent = contentArea
+
+createRoundedCorners(statusFrame, 8)
+createStroke(statusFrame, 1, COLORS.Border)
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(1, -12, 0, 18)
+statusLabel.Position = UDim2.new(0, 8, 0, 6)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "FIRING STATUS"
+statusLabel.TextColor3 = COLORS.TextSecondary
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 10
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = statusFrame
+
+local statusValue = Instance.new("TextLabel")
+statusValue.Name = "StatusValue"
+statusValue.Size = UDim2.new(1, -12, 0, 22)
+statusValue.Position = UDim2.new(0, 8, 0, 24)
+statusValue.BackgroundTransparency = 1
+statusValue.Text = "ON"
+statusValue.TextColor3 = COLORS.White
+statusValue.Font = Enum.Font.GothamBold
+statusValue.TextSize = 18
+statusValue.TextXAlignment = Enum.TextXAlignment.Left
+statusValue.Parent = statusFrame
+
+local buttonsFrame = Instance.new("Frame")
+buttonsFrame.Name = "ButtonsFrame"
+buttonsFrame.Size = UDim2.new(1, 0, 0, 76)
+buttonsFrame.Position = UDim2.new(0, 0, 0, 56)
+buttonsFrame.BackgroundTransparency = 1
+buttonsFrame.Parent = contentArea
+
+local startButton = Instance.new("TextButton")
+startButton.Name = "StartButton"
+startButton.Size = UDim2.new(0, 136, 0, 34)
+startButton.Position = UDim2.new(0.5, -140, 0, 0)
+startButton.BackgroundColor3 = COLORS.White
+startButton.BorderSizePixel = 0
+startButton.Text = "ON"
+startButton.TextColor3 = COLORS.Black
+startButton.Font = Enum.Font.GothamBold
+startButton.TextSize = 13
+startButton.AutoButtonColor = false
+startButton.Parent = buttonsFrame
+
+createRoundedCorners(startButton, 8)
+createStroke(startButton, 2, COLORS.Black)
+
+local stopButton = Instance.new("TextButton")
+stopButton.Name = "StopButton"
+stopButton.Size = UDim2.new(0, 136, 0, 34)
+stopButton.Position = UDim2.new(0.5, 4, 0, 0)
+stopButton.BackgroundColor3 = COLORS.Black
+stopButton.BorderSizePixel = 0
+stopButton.Text = "OFF"
+stopButton.TextColor3 = COLORS.White
+stopButton.Font = Enum.Font.GothamBold
+stopButton.TextSize = 13
+stopButton.AutoButtonColor = false
+stopButton.Parent = buttonsFrame
+
+createRoundedCorners(stopButton, 8)
+createStroke(stopButton, 2, COLORS.White)
+
+local targetFrame = Instance.new("Frame")
+targetFrame.Name = "TargetFrame"
+targetFrame.Size = UDim2.new(1, 0, 0, 32)
+targetFrame.Position = UDim2.new(0, 0, 0, 40)
+targetFrame.BackgroundColor3 = COLORS.Card
+targetFrame.BorderSizePixel = 0
+targetFrame.Parent = buttonsFrame
+
+createRoundedCorners(targetFrame, 8)
+createStroke(targetFrame, 1, COLORS.Border)
+
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Name = "TargetLabel"
+targetLabel.Size = UDim2.new(0, 65, 1, 0)
+targetLabel.Position = UDim2.new(0, 8, 0, 0)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Text = "TARGET:"
+targetLabel.TextColor3 = COLORS.TextSecondary
+targetLabel.Font = Enum.Font.Gotham
+targetLabel.TextSize = 11
+targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+targetLabel.Parent = targetFrame
+
+local targetValue = Instance.new("TextLabel")
+targetValue.Name = "TargetValue"
+targetValue.Size = UDim2.new(1, -80, 1, 0)
+targetValue.Position = UDim2.new(0, 70, 0, 0)
+targetValue.BackgroundTransparency = 1
+targetValue.Text = "None"
+targetValue.TextColor3 = COLORS.Text
+targetValue.Font = Enum.Font.GothamMedium
+targetValue.TextSize = 12
+targetValue.TextXAlignment = Enum.TextXAlignment.Right
+targetValue.Parent = targetFrame
+
+local settingsPanel = Instance.new("Frame")
+settingsPanel.Name = "SettingsPanel"
+settingsPanel.Size = UDim2.new(1, -16, 1, -40)
+settingsPanel.Position = UDim2.new(0, 8, 0, 38)
+settingsPanel.BackgroundColor3 = COLORS.Background
+settingsPanel.BorderSizePixel = 0
+settingsPanel.Visible = false
+settingsPanel.Parent = mainContainer
+
+createRoundedCorners(settingsPanel, 12)
+
+local settingsTitle = Instance.new("TextLabel")
+settingsTitle.Name = "SettingsTitle"
+settingsTitle.Size = UDim2.new(1, -12, 0, 30)
+settingsTitle.Position = UDim2.new(0, 8, 0, 8)
+settingsTitle.BackgroundTransparency = 1
+settingsTitle.Text = "SETTINGS"
+settingsTitle.TextColor3 = COLORS.TextSecondary
+settingsTitle.Font = Enum.Font.GothamBold
+settingsTitle.TextSize = 12
+settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
+settingsTitle.Parent = settingsPanel
+
+local autoEquipFrame = Instance.new("Frame")
+autoEquipFrame.Name = "AutoEquipFrame"
+autoEquipFrame.Size = UDim2.new(1, -12, 0, 40)
+autoEquipFrame.Position = UDim2.new(0, 8, 0, 40)
+autoEquipFrame.BackgroundColor3 = COLORS.Card
+autoEquipFrame.BorderSizePixel = 0
+autoEquipFrame.Parent = settingsPanel
+
+createRoundedCorners(autoEquipFrame, 8)
+createStroke(autoEquipFrame, 1, COLORS.Border)
+
+local autoEquipLabel = Instance.new("TextLabel")
+autoEquipLabel.Name = "AutoEquipLabel"
+autoEquipLabel.Size = UDim2.new(0.7, 0, 1, 0)
+autoEquipLabel.Position = UDim2.new(0, 8, 0, 0)
+autoEquipLabel.BackgroundTransparency = 1
+autoEquipLabel.Text = "Auto-Equip Cannon"
+autoEquipLabel.TextColor3 = COLORS.Text
+autoEquipLabel.Font = Enum.Font.Gotham
+autoEquipLabel.TextSize = 12
+autoEquipLabel.TextXAlignment = Enum.TextXAlignment.Left
+autoEquipLabel.Parent = autoEquipFrame
+
+local autoEquipToggle = Instance.new("TextButton")
+autoEquipToggle.Name = "AutoEquipToggle"
+autoEquipToggle.Size = UDim2.new(0, 60, 0, 24)
+autoEquipToggle.Position = UDim2.new(1, -68, 0.5, -12)
+autoEquipToggle.BackgroundColor3 = State.autoEquip and COLORS.White or COLORS.Black
+autoEquipToggle.BorderSizePixel = 0
+autoEquipToggle.Text = State.autoEquip and "ON" or "OFF"
+autoEquipToggle.TextColor3 = State.autoEquip and COLORS.Black or COLORS.White
+autoEquipToggle.Font = Enum.Font.GothamBold
+autoEquipToggle.TextSize = 11
+autoEquipToggle.AutoButtonColor = false
+autoEquipToggle.Parent = autoEquipFrame
+
+createRoundedCorners(autoEquipToggle, 6)
+local autoEquipStroke = createStroke(autoEquipToggle, 2, State.autoEquip and COLORS.Black or COLORS.White)
+
+local minimizedBar = Instance.new("Frame")
+minimizedBar.Name = "MinimizedBar"
+minimizedBar.Size = UDim2.new(0, 300, 0, 32)
+minimizedBar.Position = UDim2.new(0, 20, 0, 100)
+minimizedBar.BackgroundColor3 = COLORS.Card
+minimizedBar.BorderSizePixel = 0
+minimizedBar.Active = true
+minimizedBar.Draggable = true
+minimizedBar.Visible = false
+minimizedBar.Parent = gui
+
+createRoundedCorners(minimizedBar, 12)
+createStroke(minimizedBar, 1, COLORS.Border)
+
+local minimizedIconContainer = Instance.new("Frame")
+minimizedIconContainer.Name = "MinimizedIconContainer"
+minimizedIconContainer.Size = UDim2.new(0, 24, 0, 24)
+minimizedIconContainer.Position = UDim2.new(0, 8, 0.5, -12)
+minimizedIconContainer.BackgroundTransparency = 1
+minimizedIconContainer.Parent = minimizedBar
+
+local minimizedYinYangIcon = Instance.new("ImageLabel")
+minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
+minimizedYinYangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
+minimizedYinYangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
+minimizedYinYangIcon.AnchorPoint = Vector2.new(0, 0)
+minimizedYinYangIcon.BackgroundTransparency = 1
+minimizedYinYangIcon.Image = "rbxassetid://7019430519"
+minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
+minimizedYinYangIcon.Parent = minimizedIconContainer
+
+task.spawn(function()
+    while minimizedYinYangIcon and minimizedYinYangIcon.Parent do
+        TweenService:Create(minimizedYinYangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
+            Rotation = 360
+        }):Play()
+        task.wait(4)
+        minimizedYinYangIcon.Rotation = 0
+    end
+end)
+
+local minimizedTitle = Instance.new("TextLabel")
+minimizedTitle.Name = "MinimizedTitle"
+minimizedTitle.Size = UDim2.new(1, -70, 1, 0)
+minimizedTitle.Position = UDim2.new(0, 38, 0, 0)
+minimizedTitle.BackgroundTransparency = 1
+minimizedTitle.Text = "SexyBlaster9000"
+minimizedTitle.TextColor3 = COLORS.Text
+minimizedTitle.Font = Enum.Font.GothamMedium
+minimizedTitle.TextSize = 14
+minimizedTitle.TextXAlignment = Enum.TextXAlignment.Left
+minimizedTitle.Parent = minimizedBar
+
+local restoreButton = Instance.new("TextButton")
+restoreButton.Name = "RestoreButton"
+restoreButton.Size = UDim2.new(0, 24, 0, 24)
+restoreButton.Position = UDim2.new(1, -28, 0.5, -12)
+restoreButton.BackgroundColor3 = COLORS.Card
+restoreButton.BorderSizePixel = 0
+restoreButton.Text = "＋"
+restoreButton.TextColor3 = COLORS.TextSecondary
+restoreButton.Font = Enum.Font.GothamBold
+restoreButton.TextSize = 16
+restoreButton.AutoButtonColor = false
+restoreButton.Parent = minimizedBar
+
+createRoundedCorners(restoreButton, 6)
+createStroke(restoreButton, 1, COLORS.Border)
+
+local function setupButtonHover(button, defaultColor, hoverColor, textDefault, textHover)
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = hoverColor
+        }):Play()
+        if textHover then
+            TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TextColor3 = textHover
+            }):Play()
+        end
+    end)
     
-    if gethui then
-        gui.Parent = gethui()
-    elseif syn and syn.protect_gui then
-        syn.protect_gui(gui)
-        gui.Parent = game.CoreGui
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = defaultColor
+        }):Play()
+        if textDefault then
+            TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TextColor3 = textDefault
+            }):Play()
+        end
+    end)
+end
+
+setupButtonHover(settingsButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
+setupButtonHover(minimizeButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
+setupButtonHover(restoreButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
+
+startButton.MouseEnter:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = Color3.fromRGB(230, 230, 230),
+        TextColor3 = COLORS.Black
+    }):Play()
+end)
+
+startButton.MouseLeave:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = COLORS.White,
+        TextColor3 = COLORS.Black
+    }):Play()
+end)
+
+stopButton.MouseEnter:Connect(function()
+    TweenService:Create(stopButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = Color3.fromRGB(50, 50, 50),
+        TextColor3 = COLORS.White
+    }):Play()
+end)
+
+stopButton.MouseLeave:Connect(function()
+    TweenService:Create(stopButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = COLORS.Black,
+        TextColor3 = COLORS.White
+    }):Play()
+end)
+
+autoEquipToggle.MouseButton1Click:Connect(function()
+    State.autoEquip = not State.autoEquip
+    
+    if State.autoEquip then
+        autoEquipToggle.BackgroundColor3 = COLORS.White
+        autoEquipToggle.TextColor3 = COLORS.Black
+        autoEquipToggle.Text = "ON"
+        TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Color = COLORS.Black
+        }):Play()
     else
-        gui.Parent = game.CoreGui
+        autoEquipToggle.BackgroundColor3 = COLORS.Black
+        autoEquipToggle.TextColor3 = COLORS.White
+        autoEquipToggle.Text = "OFF"
+        TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Color = COLORS.White
+        }):Play()
     end
+end)
+
+local isSettingsOpen = false
+
+settingsButton.MouseButton1Click:Connect(function()
+    isSettingsOpen = not isSettingsOpen
     
-    local mainContainer = Instance.new("Frame")
-    mainContainer.Name = "MainContainer"
-    mainContainer.Size = UDim2.new(0, 300, 0, 180)
-    mainContainer.Position = UDim2.new(0, 20, 0, 100)
-    mainContainer.BackgroundColor3 = COLORS.Background
-    mainContainer.BorderSizePixel = 0
-    mainContainer.Active = true
-    mainContainer.Draggable = true
-    mainContainer.ClipsDescendants = true
-    mainContainer.Parent = gui
-    
-    createRoundedCorners(mainContainer, 12)
-    createStroke(mainContainer, 1, COLORS.Border)
-    
-    local mainGradient = Instance.new("UIGradient")
-    mainGradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 28)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 22, 22))
-    }
-    mainGradient.Rotation = 90
-    mainGradient.Parent = mainContainer
-    
-    local titleBar = Instance.new("Frame")
-    titleBar.Name = "TitleBar"
-    titleBar.Size = UDim2.new(1, 0, 0, 32)
-    titleBar.BackgroundColor3 = COLORS.Card
-    titleBar.BorderSizePixel = 0
-    titleBar.Parent = mainContainer
-    
-    createRoundedCorners(titleBar, 12)
-    
-    local titleGradient = Instance.new("UIGradient")
-    titleGradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 45)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(32, 32, 32))
-    }
-    titleGradient.Parent = titleBar
-    
-    local iconContainer = Instance.new("Frame")
-    iconContainer.Name = "IconContainer"
-    iconContainer.Size = UDim2.new(0, 24, 0, 24)
-    iconContainer.Position = UDim2.new(0, 8, 0.5, -12)
-    iconContainer.BackgroundTransparency = 1
-    iconContainer.Parent = titleBar
-    
-    local yinyangIcon = Instance.new("ImageLabel")
-    yinyangIcon.Name = "YinYangIcon"
-    yinyangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
-    yinyangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
-    yinyangIcon.AnchorPoint = Vector2.new(0, 0)
-    yinyangIcon.BackgroundTransparency = 1
-    yinyangIcon.Image = "rbxassetid://7019430519"
-    yinyangIcon.ScaleType = Enum.ScaleType.Fit
-    yinyangIcon.Parent = iconContainer
-    
-    task.spawn(function()
-        while yinyangIcon and yinyangIcon.Parent do
-            TweenService:Create(yinyangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
-                Rotation = 360
-            }):Play()
-            task.wait(4)
-            yinyangIcon.Rotation = 0
-        end
-    end)
-    
-    local titleText = Instance.new("TextLabel")
-    titleText.Name = "TitleText"
-    titleText.Size = UDim2.new(1, -120, 1, 0)
-    titleText.Position = UDim2.new(0, 38, 0, 0)
-    titleText.BackgroundTransparency = 1
-    titleText.Text = "SexyBlaster9000"
-    titleText.TextColor3 = COLORS.Text
-    titleText.Font = Enum.Font.GothamMedium
-    titleText.TextSize = 14
-    titleText.TextXAlignment = Enum.TextXAlignment.Left
-    titleText.Parent = titleBar
-    
-    local settingsButton = Instance.new("TextButton")
-    settingsButton.Name = "SettingsButton"
-    settingsButton.Size = UDim2.new(0, 24, 0, 24)
-    settingsButton.Position = UDim2.new(1, -56, 0.5, -12)
-    settingsButton.BackgroundColor3 = COLORS.Card
-    settingsButton.BorderSizePixel = 0
-    settingsButton.Text = "⚙"
-    settingsButton.TextColor3 = COLORS.TextSecondary
-    settingsButton.Font = Enum.Font.GothamBold
-    settingsButton.TextSize = 14
-    settingsButton.AutoButtonColor = false
-    settingsButton.Parent = titleBar
-    
-    createRoundedCorners(settingsButton, 6)
-    createStroke(settingsButton, 1, COLORS.Border)
-    
-    local minimizeButton = Instance.new("TextButton")
-    minimizeButton.Name = "MinimizeButton"
-    minimizeButton.Size = UDim2.new(0, 24, 0, 24)
-    minimizeButton.Position = UDim2.new(1, -28, 0.5, -12)
-    minimizeButton.BackgroundColor3 = COLORS.Card
-    minimizeButton.BorderSizePixel = 0
-    minimizeButton.Text = "─"
-    minimizeButton.TextColor3 = COLORS.TextSecondary
-    minimizeButton.Font = Enum.Font.GothamBold
-    minimizeButton.TextSize = 16
-    minimizeButton.AutoButtonColor = false
-    minimizeButton.Parent = titleBar
-    
-    createRoundedCorners(minimizeButton, 6)
-    createStroke(minimizeButton, 1, COLORS.Border)
-    
-    local contentArea = Instance.new("Frame")
-    contentArea.Name = "ContentArea"
-    contentArea.Size = UDim2.new(1, -16, 1, -40)
-    contentArea.Position = UDim2.new(0, 8, 0, 38)
-    contentArea.BackgroundTransparency = 1
-    contentArea.Parent = mainContainer
-    
-    local statusFrame = Instance.new("Frame")
-    statusFrame.Name = "StatusFrame"
-    statusFrame.Size = UDim2.new(1, 0, 0, 50)
-    statusFrame.BackgroundColor3 = COLORS.Card
-    statusFrame.BorderSizePixel = 0
-    statusFrame.Parent = contentArea
-    
-    createRoundedCorners(statusFrame, 8)
-    createStroke(statusFrame, 1, COLORS.Border)
-    
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Name = "StatusLabel"
-    statusLabel.Size = UDim2.new(1, -12, 0, 18)
-    statusLabel.Position = UDim2.new(0, 8, 0, 6)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "FIRING STATUS"
-    statusLabel.TextColor3 = COLORS.TextSecondary
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 10
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-    statusLabel.Parent = statusFrame
-    
-    local statusValue = Instance.new("TextLabel")
-    statusValue.Name = "StatusValue"
-    statusValue.Size = UDim2.new(1, -12, 0, 22)
-    statusValue.Position = UDim2.new(0, 8, 0, 24)
-    statusValue.BackgroundTransparency = 1
-    statusValue.Text = "ON"
-    statusValue.TextColor3 = COLORS.White
-    statusValue.Font = Enum.Font.GothamBold
-    statusValue.TextSize = 18
-    statusValue.TextXAlignment = Enum.TextXAlignment.Left
-    statusValue.Parent = statusFrame
-    
-    local buttonsFrame = Instance.new("Frame")
-    buttonsFrame.Name = "ButtonsFrame"
-    buttonsFrame.Size = UDim2.new(1, 0, 0, 76)
-    buttonsFrame.Position = UDim2.new(0, 0, 0, 56)
-    buttonsFrame.BackgroundTransparency = 1
-    buttonsFrame.Parent = contentArea
-    
-    local startButton = Instance.new("TextButton")
-    startButton.Name = "StartButton"
-    startButton.Size = UDim2.new(0, 136, 0, 34)
-    startButton.Position = UDim2.new(0.5, -140, 0, 0)
-    startButton.BackgroundColor3 = COLORS.White
-    startButton.BorderSizePixel = 0
-    startButton.Text = "ON"
-    startButton.TextColor3 = COLORS.Black
-    startButton.Font = Enum.Font.GothamBold
-    startButton.TextSize = 13
-    startButton.AutoButtonColor = false
-    startButton.Parent = buttonsFrame
-    
-    createRoundedCorners(startButton, 8)
-    createStroke(startButton, 2, COLORS.Black)
-    
-    local stopButton = Instance.new("TextButton")
-    stopButton.Name = "StopButton"
-    stopButton.Size = UDim2.new(0, 136, 0, 34)
-    stopButton.Position = UDim2.new(0.5, 4, 0, 0)
-    stopButton.BackgroundColor3 = COLORS.Black
-    stopButton.BorderSizePixel = 0
-    stopButton.Text = "OFF"
-    stopButton.TextColor3 = COLORS.White
-    stopButton.Font = Enum.Font.GothamBold
-    stopButton.TextSize = 13
-    stopButton.AutoButtonColor = false
-    stopButton.Parent = buttonsFrame
-    
-    createRoundedCorners(stopButton, 8)
-    createStroke(stopButton, 2, COLORS.White)
-    
-    local targetFrame = Instance.new("Frame")
-    targetFrame.Name = "TargetFrame"
-    targetFrame.Size = UDim2.new(1, 0, 0, 32)
-    targetFrame.Position = UDim2.new(0, 0, 0, 40)
-    targetFrame.BackgroundColor3 = COLORS.Card
-    targetFrame.BorderSizePixel = 0
-    targetFrame.Parent = buttonsFrame
-    
-    createRoundedCorners(targetFrame, 8)
-    createStroke(targetFrame, 1, COLORS.Border)
-    
-    local targetLabel = Instance.new("TextLabel")
-    targetLabel.Name = "TargetLabel"
-    targetLabel.Size = UDim2.new(0, 65, 1, 0)
-    targetLabel.Position = UDim2.new(0, 8, 0, 0)
-    targetLabel.BackgroundTransparency = 1
-    targetLabel.Text = "TARGET:"
-    targetLabel.TextColor3 = COLORS.TextSecondary
-    targetLabel.Font = Enum.Font.Gotham
-    targetLabel.TextSize = 11
-    targetLabel.TextXAlignment = Enum.TextXAlignment.Left
-    targetLabel.Parent = targetFrame
-    
-    local targetValue = Instance.new("TextLabel")
-    targetValue.Name = "TargetValue"
-    targetValue.Size = UDim2.new(1, -80, 1, 0)
-    targetValue.Position = UDim2.new(0, 70, 0, 0)
-    targetValue.BackgroundTransparency = 1
-    targetValue.Text = "None"
-    targetValue.TextColor3 = COLORS.Text
-    targetValue.Font = Enum.Font.GothamMedium
-    targetValue.TextSize = 12
-    targetValue.TextXAlignment = Enum.TextXAlignment.Right
-    targetValue.Parent = targetFrame
-    
-    local settingsPanel = Instance.new("Frame")
-    settingsPanel.Name = "SettingsPanel"
-    settingsPanel.Size = UDim2.new(1, -16, 1, -40)
-    settingsPanel.Position = UDim2.new(0, 8, 0, 38)
-    settingsPanel.BackgroundColor3 = COLORS.Background
-    settingsPanel.BorderSizePixel = 0
-    settingsPanel.Visible = false
-    settingsPanel.Parent = mainContainer
-    
-    createRoundedCorners(settingsPanel, 12)
-    
-    local settingsTitle = Instance.new("TextLabel")
-    settingsTitle.Name = "SettingsTitle"
-    settingsTitle.Size = UDim2.new(1, -12, 0, 30)
-    settingsTitle.Position = UDim2.new(0, 8, 0, 8)
-    settingsTitle.BackgroundTransparency = 1
-    settingsTitle.Text = "SETTINGS"
-    settingsTitle.TextColor3 = COLORS.TextSecondary
-    settingsTitle.Font = Enum.Font.GothamBold
-    settingsTitle.TextSize = 12
-    settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
-    settingsTitle.Parent = settingsPanel
-    
-    local autoEquipFrame = Instance.new("Frame")
-    autoEquipFrame.Name = "AutoEquipFrame"
-    autoEquipFrame.Size = UDim2.new(1, -12, 0, 40)
-    autoEquipFrame.Position = UDim2.new(0, 8, 0, 40)
-    autoEquipFrame.BackgroundColor3 = COLORS.Card
-    autoEquipFrame.BorderSizePixel = 0
-    autoEquipFrame.Parent = settingsPanel
-    
-    createRoundedCorners(autoEquipFrame, 8)
-    createStroke(autoEquipFrame, 1, COLORS.Border)
-    
-    local autoEquipLabel = Instance.new("TextLabel")
-    autoEquipLabel.Name = "AutoEquipLabel"
-    autoEquipLabel.Size = UDim2.new(0.7, 0, 1, 0)
-    autoEquipLabel.Position = UDim2.new(0, 8, 0, 0)
-    autoEquipLabel.BackgroundTransparency = 1
-    autoEquipLabel.Text = "Auto-Equip Cannon"
-    autoEquipLabel.TextColor3 = COLORS.Text
-    autoEquipLabel.Font = Enum.Font.Gotham
-    autoEquipLabel.TextSize = 12
-    autoEquipLabel.TextXAlignment = Enum.TextXAlignment.Left
-    autoEquipLabel.Parent = autoEquipFrame
-    
-    local autoEquipToggle = Instance.new("TextButton")
-    autoEquipToggle.Name = "AutoEquipToggle"
-    autoEquipToggle.Size = UDim2.new(0, 60, 0, 24)
-    autoEquipToggle.Position = UDim2.new(1, -68, 0.5, -12)
-    autoEquipToggle.BackgroundColor3 = State.autoEquip and COLORS.White or COLORS.Black
-    autoEquipToggle.BorderSizePixel = 0
-    autoEquipToggle.Text = State.autoEquip and "ON" or "OFF"
-    autoEquipToggle.TextColor3 = State.autoEquip and COLORS.Black or COLORS.White
-    autoEquipToggle.Font = Enum.Font.GothamBold
-    autoEquipToggle.TextSize = 11
-    autoEquipToggle.AutoButtonColor = false
-    autoEquipToggle.Parent = autoEquipFrame
-    
-    createRoundedCorners(autoEquipToggle, 6)
-    local autoEquipStroke = createStroke(autoEquipToggle, 2, State.autoEquip and COLORS.Black or COLORS.White)
-    
-    local minimizedBar = Instance.new("Frame")
-    minimizedBar.Name = "MinimizedBar"
-    minimizedBar.Size = UDim2.new(0, 300, 0, 32)
-    minimizedBar.Position = UDim2.new(0, 20, 0, 100)
-    minimizedBar.BackgroundColor3 = COLORS.Card
-    minimizedBar.BorderSizePixel = 0
-    minimizedBar.Active = true
-    minimizedBar.Draggable = true
-    minimizedBar.Visible = false
-    minimizedBar.Parent = gui
-    
-    createRoundedCorners(minimizedBar, 12)
-    createStroke(minimizedBar, 1, COLORS.Border)
-    
-    local minimizedIconContainer = Instance.new("Frame")
-    minimizedIconContainer.Name = "MinimizedIconContainer"
-    minimizedIconContainer.Size = UDim2.new(0, 24, 0, 24)
-    minimizedIconContainer.Position = UDim2.new(0, 8, 0.5, -12)
-    minimizedIconContainer.BackgroundTransparency = 1
-    minimizedIconContainer.Parent = minimizedBar
-    
-    local minimizedYinYangIcon = Instance.new("ImageLabel")
-    minimizedYinYangIcon.Name = "MinimizedYinYangIcon"
-    minimizedYinYangIcon.Size = UDim2.new(0.7, 0, 0.7, 0)
-    minimizedYinYangIcon.Position = UDim2.new(0.15, 0, 0.15, 0)
-    minimizedYinYangIcon.AnchorPoint = Vector2.new(0, 0)
-    minimizedYinYangIcon.BackgroundTransparency = 1
-    minimizedYinYangIcon.Image = "rbxassetid://7019430519"
-    minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
-    minimizedYinYangIcon.Parent = minimizedIconContainer
-    
-    task.spawn(function()
-        while minimizedYinYangIcon and minimizedYinYangIcon.Parent do
-            TweenService:Create(minimizedYinYangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
-                Rotation = 360
-            }):Play()
-            task.wait(4)
-            minimizedYinYangIcon.Rotation = 0
-        end
-    end)
-    
-    local minimizedTitle = Instance.new("TextLabel")
-    minimizedTitle.Name = "MinimizedTitle"
-    minimizedTitle.Size = UDim2.new(1, -70, 1, 0)
-    minimizedTitle.Position = UDim2.new(0, 38, 0, 0)
-    minimizedTitle.BackgroundTransparency = 1
-    minimizedTitle.Text = "SexyBlaster9000"
-    minimizedTitle.TextColor3 = COLORS.Text
-    minimizedTitle.Font = Enum.Font.GothamMedium
-    minimizedTitle.TextSize = 14
-    minimizedTitle.TextXAlignment = Enum.TextXAlignment.Left
-    minimizedTitle.Parent = minimizedBar
-    
-    local restoreButton = Instance.new("TextButton")
-    restoreButton.Name = "RestoreButton"
-    restoreButton.Size = UDim2.new(0, 24, 0, 24)
-    restoreButton.Position = UDim2.new(1, -28, 0.5, -12)
-    restoreButton.BackgroundColor3 = COLORS.Card
-    restoreButton.BorderSizePixel = 0
-    restoreButton.Text = "＋"
-    restoreButton.TextColor3 = COLORS.TextSecondary
-    restoreButton.Font = Enum.Font.GothamBold
-    restoreButton.TextSize = 16
-    restoreButton.AutoButtonColor = false
-    restoreButton.Parent = minimizedBar
-    
-    createRoundedCorners(restoreButton, 6)
-    createStroke(restoreButton, 1, COLORS.Border)
-    
-    local function setupButtonHover(button, defaultColor, hoverColor, textDefault, textHover)
-        button.MouseEnter:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                BackgroundColor3 = hoverColor
-            }):Play()
-            if textHover then
-                TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    TextColor3 = textHover
-                }):Play()
-            end
-        end)
-        
-        button.MouseLeave:Connect(function()
-            TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                BackgroundColor3 = defaultColor
-            }):Play()
-            if textDefault then
-                TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    TextColor3 = textDefault
-                }):Play()
-            end
-        end)
+    if isSettingsOpen then
+        contentArea.Visible = false
+        settingsPanel.Visible = true
+    else
+        contentArea.Visible = true
+        settingsPanel.Visible = false
     end
-    
-    setupButtonHover(settingsButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
-    setupButtonHover(minimizeButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
-    setupButtonHover(restoreButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
-    
-    startButton.MouseEnter:Connect(function()
-        TweenService:Create(startButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = Color3.fromRGB(230, 230, 230),
-            TextColor3 = COLORS.Black
-        }):Play()
-    end)
-    
-    startButton.MouseLeave:Connect(function()
-        TweenService:Create(startButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = COLORS.White,
-            TextColor3 = COLORS.Black
-        }):Play()
-    end)
-    
-    stopButton.MouseEnter:Connect(function()
-        TweenService:Create(stopButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = Color3.fromRGB(50, 50, 50),
-            TextColor3 = COLORS.White
-        }):Play()
-    end)
-    
-    stopButton.MouseLeave:Connect(function()
-        TweenService:Create(stopButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = COLORS.Black,
-            TextColor3 = COLORS.White
-        }):Play()
-    end)
-    
-    autoEquipToggle.MouseButton1Click:Connect(function()
-        State.autoEquip = not State.autoEquip
-        
-        if State.autoEquip then
-            autoEquipToggle.BackgroundColor3 = COLORS.White
-            autoEquipToggle.TextColor3 = COLORS.Black
-            autoEquipToggle.Text = "ON"
-            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Color = COLORS.Black
-            }):Play()
-        else
-            autoEquipToggle.BackgroundColor3 = COLORS.Black
-            autoEquipToggle.TextColor3 = COLORS.White
-            autoEquipToggle.Text = "OFF"
-            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Color = COLORS.White
-            }):Play()
-        end
-    end)
-    
-    local isSettingsOpen = false
-    
-    settingsButton.MouseButton1Click:Connect(function()
-        isSettingsOpen = not isSettingsOpen
-        
-        if isSettingsOpen then
-            contentArea.Visible = false
-            settingsPanel.Visible = true
-        else
-            contentArea.Visible = true
-            settingsPanel.Visible = false
-        end
-    end
-    
-    return {
-        GUI = gui,
-        MainContainer = mainContainer,
-        MinimizedBar = minimizedBar,
-        StatusValue = statusValue,
-        TargetValue = targetValue,
-        StartButton = startButton,
-        StopButton = stopButton,
-        MinimizeButton = minimizeButton,
-        RestoreButton = restoreButton,
-        SettingsButton = settingsButton,
-        SettingsPanel = settingsPanel,
-        ContentArea = contentArea
-    }
+end)
+
+return {
+    GUI = gui,
+    MainContainer = mainContainer,
+    MinimizedBar = minimizedBar,
+    StatusValue = statusValue,
+    TargetValue = targetValue,
+    StartButton = startButton,
+    StopButton = stopButton,
+    MinimizeButton = minimizeButton,
+    RestoreButton = restoreButton,
+    SettingsButton = settingsButton,
+    SettingsPanel = settingsPanel,
+    ContentArea = contentArea
+}
+
 end
 
 local guiElements = createGUI()
 
 local function updateStatus()
-    if State.isRunning then
-        guiElements.StatusValue.Text = "ON"
-        guiElements.StatusValue.TextColor3 = COLORS.White
-    else
-        guiElements.StatusValue.Text = "OFF"
-        guiElements.StatusValue.TextColor3 = COLORS.White
-    end
+if State.isRunning then
+guiElements.StatusValue.Text = "ON"
+guiElements.StatusValue.TextColor3 = COLORS.White
+else
+guiElements.StatusValue.Text = "OFF"
+guiElements.StatusValue.TextColor3 = COLORS.White
+end
 end
 
 local function updateTargetInfo()
-    if State.currentTarget then
-        guiElements.TargetValue.Text = State.currentTarget.Name
-        guiElements.TargetValue.TextColor3 = COLORS.Text
-    else
-        guiElements.TargetValue.Text = "None"
-        guiElements.TargetValue.TextColor3 = COLORS.TextSecondary
-    end
+if State.currentTarget then
+guiElements.TargetValue.Text = State.currentTarget.Name
+guiElements.TargetValue.TextColor3 = COLORS.Text
+else
+guiElements.TargetValue.Text = "None"
+guiElements.TargetValue.TextColor3 = COLORS.TextSecondary
+end
 end
 
 local function startFiring()
-    if not State.isRunning then
-        State.isRunning = true
-        updateStatus()
-        task.spawn(farmingLoop)
-        task.spawn(updateTargetLoop)
-        
-        TweenService:Create(guiElements.StartButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 132, 0, 32)
-        }):Play()
-        task.wait(0.1)
-        TweenService:Create(guiElements.StartButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 136, 0, 34)
-        }):Play()
-    end
+if not State.isRunning then
+State.isRunning = true
+updateStatus()
+task.spawn(farmingLoop)
+task.spawn(updateTargetLoop)
+
+    TweenService:Create(guiElements.StartButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 132, 0, 32)
+    }):Play()
+    task.wait(0.1)
+    TweenService:Create(guiElements.StartButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 136, 0, 34)
+    }):Play()
+end
+
 end
 
 local function stopFiring()
-    if State.isRunning then
-        State.isRunning = false
-        State.currentTarget = nil
-        updateStatus()
-        updateTargetInfo()
-        
-        TweenService:Create(guiElements.StopButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 132, 0, 32)
-        }):Play()
-        task.wait(0.1)
-        TweenService:Create(guiElements.StopButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 136, 0, 34)
-        }):Play()
-    end
+if State.isRunning then
+State.isRunning = false
+State.currentTarget = nil
+updateStatus()
+updateTargetInfo()
+
+    TweenService:Create(guiElements.StopButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 132, 0, 32)
+    }):Play()
+    task.wait(0.1)
+    TweenService:Create(guiElements.StopButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 136, 0, 34)
+    }):Play()
+end
+
 end
 
 guiElements.StartButton.MouseButton1Click:Connect(startFiring)
@@ -879,41 +886,43 @@ guiElements.StopButton.MouseButton1Click:Connect(stopFiring)
 local isMinimizing = false
 
 guiElements.MinimizeButton.MouseButton1Click:Connect(function()
-    if isMinimizing then return end
-    isMinimizing = true
-    
-    local startPos = guiElements.MainContainer.Position
-    
-    TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 300, 0, 32)
-    }):Play()
-    
-    task.wait(0.25)
-    
-    guiElements.MainContainer.Visible = false
-    guiElements.MinimizedBar.Position = startPos
-    guiElements.MinimizedBar.Visible = true
-    
-    isMinimizing = false
+if isMinimizing then return end
+isMinimizing = true
+
+local startPos = guiElements.MainContainer.Position
+
+TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 300, 0, 32)
+}):Play()
+
+task.wait(0.25)
+
+guiElements.MainContainer.Visible = false
+guiElements.MinimizedBar.Position = startPos
+guiElements.MinimizedBar.Visible = true
+
+isMinimizing = false
+
 end)
 
 guiElements.RestoreButton.MouseButton1Click:Connect(function()
-    if isMinimizing then return end
-    isMinimizing = true
-    
-    local minimizedPos = guiElements.MinimizedBar.Position
-    
-    guiElements.MinimizedBar.Visible = false
-    guiElements.MainContainer.Position = minimizedPos
-    guiElements.MainContainer.Size = UDim2.new(0, 300, 0, 32)
-    guiElements.MainContainer.Visible = true
-    
-    TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 300, 0, 180)
-    }):Play()
-    
-    task.wait(0.25)
-    isMinimizing = false
+if isMinimizing then return end
+isMinimizing = true
+
+local minimizedPos = guiElements.MinimizedBar.Position
+
+guiElements.MinimizedBar.Visible = false
+guiElements.MainContainer.Position = minimizedPos
+guiElements.MainContainer.Size = UDim2.new(0, 300, 0, 32)
+guiElements.MainContainer.Visible = true
+
+TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 300, 0, 180)
+}):Play()
+
+task.wait(0.25)
+isMinimizing = false
+
 end)
 
 updateStatus()
@@ -923,24 +932,24 @@ task.spawn(farmingLoop)
 task.spawn(updateTargetLoop)
 
 task.spawn(function()
-    while guiElements.GUI.Parent do
-        updateTargetInfo()
-        task.wait(0.5)
-    end
+while guiElements.GUI.Parent do
+updateTargetInfo()
+task.wait(0.5)
+end
 end)
 
 return {
-    Start = startFiring,
-    Stop = stopFiring,
-    GetStatus = function()
-        return {
-            Running = State.isRunning,
-            CurrentTarget = State.currentTarget and State.currentTarget.Name or "None",
-            PlayerAlive = State.playerAlive,
-            ShootingEnabled = State.shootingEnabled,
-            ShootingErrors = State.shootingErrors,
-            LastShotTime = State.lastFireTime,
-            AutoEquip = State.autoEquip
-        }
-    end
+Start = startFiring,
+Stop = stopFiring,
+GetStatus = function()
+return {
+Running = State.isRunning,
+CurrentTarget = State.currentTarget and State.currentTarget.Name or "None",
+PlayerAlive = State.playerAlive,
+ShootingEnabled = State.shootingEnabled,
+ShootingErrors = State.shootingErrors,
+LastShotTime = State.lastFireTime,
+AutoEquip = State.autoEquip
+}
+end
 }
