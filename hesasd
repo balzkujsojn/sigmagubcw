@@ -13,7 +13,6 @@ local CONFIG = {
     REMOTE_NAME = "RemoteFunction"
 }
 
--- Enemies to ignore
 local IGNORE_ENEMIES = {
     ["Champion of the Equinox"] = true,
     ["Fiscus"] = true,
@@ -21,7 +20,7 @@ local IGNORE_ENEMIES = {
 }
 
 local State = {
-    isRunning = true,  -- Changed from false to true (starts ON)
+    isRunning = true,
     lastFireTime = 0,
     currentTarget = nil,
     chargeValue = 100,
@@ -31,7 +30,7 @@ local State = {
     maxShootingErrors = 10,
     lastToolEquipTime = 0,
     toolEquipCooldown = 2,
-    autoEquip = true  -- Added auto-equip setting
+    autoEquip = true
 }
 
 local cache = {
@@ -40,20 +39,16 @@ local cache = {
     workspaceUpdateInterval = 0.5
 }
 
--- Colors - YinYang theme (black & white)
 local COLORS = {
     Background = Color3.fromRGB(25, 25, 25),
     Card = Color3.fromRGB(35, 35, 35),
     Text = Color3.fromRGB(240, 240, 240),
     TextSecondary = Color3.fromRGB(180, 180, 180),
-    Success = Color3.fromRGB(255, 255, 255),  -- White for ON
-    Danger = Color3.fromRGB(255, 255, 255),   -- White for OFF too
-    Border = Color3.fromRGB(60, 60, 60),
     White = Color3.fromRGB(255, 255, 255),
-    Black = Color3.fromRGB(30, 30, 30)
+    Black = Color3.fromRGB(30, 30, 30),
+    Border = Color3.fromRGB(60, 60, 60)
 }
 
--- Utility functions
 local function createRoundedCorners(parent, cornerRadius)
     local uicorner = Instance.new("UICorner")
     uicorner.CornerRadius = UDim.new(0, cornerRadius)
@@ -89,24 +84,20 @@ local function autoEquipTool()
     
     local character = player.Character
     if not character then 
-        task.wait(0.5)
-        return autoEquipTool()
+        return false
     end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then 
-        task.wait(0.5)
-        return autoEquipTool()
+        return false
     end
     
-    -- Check if tool is already equipped
     local tool = character:FindFirstChild(CONFIG.TOOL_NAME)
     if tool then
         State.lastToolEquipTime = now
         return true
     end
     
-    -- Try to get tool from backpack
     local backpack = player:FindFirstChild("Backpack")
     if backpack then
         tool = backpack:FindFirstChild(CONFIG.TOOL_NAME)
@@ -168,7 +159,6 @@ local function findEnemies()
             local humanoid = model:FindFirstChildOfClass("Humanoid")
             
             if humanoid and humanoid.Health > 0 then
-                -- Check if enemy should be ignored
                 if IGNORE_ENEMIES[model.Name] then
                     continue
                 end
@@ -268,25 +258,8 @@ local function attemptFire()
     if not State.playerAlive or not State.shootingEnabled then 
         return 
     end
-    
-    local success, targetResult = pcall(function()
-        State.currentTarget = selectTarget()
-        return State.currentTarget
-    end)
-    
-    if not success then
-        State.shootingErrors = State.shootingErrors + 1
-        if State.shootingErrors > State.maxShootingErrors then
-            State.shootingEnabled = false
-            task.wait(5)
-            State.shootingEnabled = true
-            State.shootingErrors = 0
-        end
-        return
-    end
-    
-    if not targetResult then
-        return
+    if not State.currentTarget then 
+        return 
     end
     
     local toolData
@@ -311,7 +284,7 @@ local function attemptFire()
     
     State.lastFireTime = now
     
-    local targetPart = targetResult.TargetPart
+    local targetPart = State.currentTarget.TargetPart
     if not targetPart then
         return
     end
@@ -351,7 +324,6 @@ local function farmingLoop()
         State.playerAlive = isPlayerAlive()
         
         if State.playerAlive then
-            -- Auto-equip if enabled
             if State.autoEquip then
                 autoEquipTool()
             end
@@ -362,6 +334,20 @@ local function farmingLoop()
         end
         
         RunService.Heartbeat:Wait()
+    end
+end
+
+local function updateTargetLoop()
+    while State.isRunning do
+        if State.playerAlive and State.shootingEnabled then
+            local success, target = pcall(selectTarget)
+            if success then
+                State.currentTarget = target
+            end
+        else
+            State.currentTarget = nil
+        end
+        task.wait(0.3)
     end
 end
 
@@ -380,7 +366,6 @@ local function createGUI()
         gui.Parent = game.CoreGui
     end
     
-    -- Main Container
     local mainContainer = Instance.new("Frame")
     mainContainer.Name = "MainContainer"
     mainContainer.Size = UDim2.new(0, 300, 0, 180)
@@ -392,10 +377,17 @@ local function createGUI()
     mainContainer.ClipsDescendants = true
     mainContainer.Parent = gui
     
-    createRoundedCorners(mainContainer, 8)
+    createRoundedCorners(mainContainer, 12)
     createStroke(mainContainer, 1, COLORS.Border)
     
-    -- Title Bar
+    local mainGradient = Instance.new("UIGradient")
+    mainGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 28)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 22, 22))
+    }
+    mainGradient.Rotation = 90
+    mainGradient.Parent = mainContainer
+    
     local titleBar = Instance.new("Frame")
     titleBar.Name = "TitleBar"
     titleBar.Size = UDim2.new(1, 0, 0, 32)
@@ -403,9 +395,15 @@ local function createGUI()
     titleBar.BorderSizePixel = 0
     titleBar.Parent = mainContainer
     
-    createRoundedCorners(titleBar, 8)
+    createRoundedCorners(titleBar, 12)
     
-    -- YinYang Icon Container (from your script)
+    local titleGradient = Instance.new("UIGradient")
+    titleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 45)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(32, 32, 32))
+    }
+    titleGradient.Parent = titleBar
+    
     local iconContainer = Instance.new("Frame")
     iconContainer.Name = "IconContainer"
     iconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -423,7 +421,6 @@ local function createGUI()
     yinyangIcon.ScaleType = Enum.ScaleType.Fit
     yinyangIcon.Parent = iconContainer
     
-    -- Start rotation animation for the YinYang icon
     task.spawn(function()
         while yinyangIcon and yinyangIcon.Parent do
             TweenService:Create(yinyangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
@@ -434,10 +431,9 @@ local function createGUI()
         end
     end)
     
-    -- Title Text
     local titleText = Instance.new("TextLabel")
     titleText.Name = "TitleText"
-    titleText.Size = UDim2.new(1, -120, 1, 0)  -- Reduced width for extra buttons
+    titleText.Size = UDim2.new(1, -120, 1, 0)
     titleText.Position = UDim2.new(0, 38, 0, 0)
     titleText.BackgroundTransparency = 1
     titleText.Text = "SexyBlaster9000"
@@ -447,11 +443,10 @@ local function createGUI()
     titleText.TextXAlignment = Enum.TextXAlignment.Left
     titleText.Parent = titleBar
     
-    -- Settings Button (gear icon)
     local settingsButton = Instance.new("TextButton")
     settingsButton.Name = "SettingsButton"
     settingsButton.Size = UDim2.new(0, 24, 0, 24)
-    settingsButton.Position = UDim2.new(1, -56, 0.5, -12)  -- Position before minimize button
+    settingsButton.Position = UDim2.new(1, -56, 0.5, -12)
     settingsButton.BackgroundColor3 = COLORS.Card
     settingsButton.BorderSizePixel = 0
     settingsButton.Text = "⚙"
@@ -464,7 +459,6 @@ local function createGUI()
     createRoundedCorners(settingsButton, 6)
     createStroke(settingsButton, 1, COLORS.Border)
     
-    -- Minimize Button (minus symbol)
     local minimizeButton = Instance.new("TextButton")
     minimizeButton.Name = "MinimizeButton"
     minimizeButton.Size = UDim2.new(0, 24, 0, 24)
@@ -478,13 +472,9 @@ local function createGUI()
     minimizeButton.AutoButtonColor = false
     minimizeButton.Parent = titleBar
     
-    local minimizeCorners = Instance.new("UICorner")
-    minimizeCorners.CornerRadius = UDim.new(0, 6)
-    minimizeCorners.Parent = minimizeButton
-    
+    createRoundedCorners(minimizeButton, 6)
     createStroke(minimizeButton, 1, COLORS.Border)
     
-    -- Content Area
     local contentArea = Instance.new("Frame")
     contentArea.Name = "ContentArea"
     contentArea.Size = UDim2.new(1, -16, 1, -40)
@@ -492,7 +482,6 @@ local function createGUI()
     contentArea.BackgroundTransparency = 1
     contentArea.Parent = mainContainer
     
-    -- Status Section
     local statusFrame = Instance.new("Frame")
     statusFrame.Name = "StatusFrame"
     statusFrame.Size = UDim2.new(1, 0, 0, 50)
@@ -500,7 +489,7 @@ local function createGUI()
     statusFrame.BorderSizePixel = 0
     statusFrame.Parent = contentArea
     
-    createRoundedCorners(statusFrame, 6)
+    createRoundedCorners(statusFrame, 8)
     createStroke(statusFrame, 1, COLORS.Border)
     
     local statusLabel = Instance.new("TextLabel")
@@ -521,13 +510,12 @@ local function createGUI()
     statusValue.Position = UDim2.new(0, 8, 0, 24)
     statusValue.BackgroundTransparency = 1
     statusValue.Text = "ON"
-    statusValue.TextColor3 = COLORS.White  -- Always white
+    statusValue.TextColor3 = COLORS.White
     statusValue.Font = Enum.Font.GothamBold
     statusValue.TextSize = 18
     statusValue.TextXAlignment = Enum.TextXAlignment.Left
     statusValue.Parent = statusFrame
     
-    -- Control Buttons (YinYang theme - white/black)
     local buttonsFrame = Instance.new("Frame")
     buttonsFrame.Name = "ButtonsFrame"
     buttonsFrame.Size = UDim2.new(1, 0, 0, 76)
@@ -535,7 +523,6 @@ local function createGUI()
     buttonsFrame.BackgroundTransparency = 1
     buttonsFrame.Parent = contentArea
     
-    -- Start Button (WHITE - YinYang yang side)
     local startButton = Instance.new("TextButton")
     startButton.Name = "StartButton"
     startButton.Size = UDim2.new(0, 136, 0, 34)
@@ -549,10 +536,9 @@ local function createGUI()
     startButton.AutoButtonColor = false
     startButton.Parent = buttonsFrame
     
-    createRoundedCorners(startButton, 6)
+    createRoundedCorners(startButton, 8)
     createStroke(startButton, 2, COLORS.Black)
     
-    -- Stop Button (BLACK - YinYang yin side)
     local stopButton = Instance.new("TextButton")
     stopButton.Name = "StopButton"
     stopButton.Size = UDim2.new(0, 136, 0, 34)
@@ -566,10 +552,9 @@ local function createGUI()
     stopButton.AutoButtonColor = false
     stopButton.Parent = buttonsFrame
     
-    createRoundedCorners(stopButton, 6)
+    createRoundedCorners(stopButton, 8)
     createStroke(stopButton, 2, COLORS.White)
     
-    -- Target Info
     local targetFrame = Instance.new("Frame")
     targetFrame.Name = "TargetFrame"
     targetFrame.Size = UDim2.new(1, 0, 0, 32)
@@ -578,7 +563,7 @@ local function createGUI()
     targetFrame.BorderSizePixel = 0
     targetFrame.Parent = buttonsFrame
     
-    createRoundedCorners(targetFrame, 6)
+    createRoundedCorners(targetFrame, 8)
     createStroke(targetFrame, 1, COLORS.Border)
     
     local targetLabel = Instance.new("TextLabel")
@@ -605,7 +590,6 @@ local function createGUI()
     targetValue.TextXAlignment = Enum.TextXAlignment.Right
     targetValue.Parent = targetFrame
     
-    -- Settings Panel (hidden by default)
     local settingsPanel = Instance.new("Frame")
     settingsPanel.Name = "SettingsPanel"
     settingsPanel.Size = UDim2.new(1, -16, 1, -40)
@@ -615,9 +599,8 @@ local function createGUI()
     settingsPanel.Visible = false
     settingsPanel.Parent = mainContainer
     
-    createRoundedCorners(settingsPanel, 8)
+    createRoundedCorners(settingsPanel, 12)
     
-    -- Settings Title
     local settingsTitle = Instance.new("TextLabel")
     settingsTitle.Name = "SettingsTitle"
     settingsTitle.Size = UDim2.new(1, -12, 0, 30)
@@ -630,7 +613,6 @@ local function createGUI()
     settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
     settingsTitle.Parent = settingsPanel
     
-    -- Auto-Equip Toggle
     local autoEquipFrame = Instance.new("Frame")
     autoEquipFrame.Name = "AutoEquipFrame"
     autoEquipFrame.Size = UDim2.new(1, -12, 0, 40)
@@ -639,7 +621,7 @@ local function createGUI()
     autoEquipFrame.BorderSizePixel = 0
     autoEquipFrame.Parent = settingsPanel
     
-    createRoundedCorners(autoEquipFrame, 6)
+    createRoundedCorners(autoEquipFrame, 8)
     createStroke(autoEquipFrame, 1, COLORS.Border)
     
     local autoEquipLabel = Instance.new("TextLabel")
@@ -668,12 +650,11 @@ local function createGUI()
     autoEquipToggle.Parent = autoEquipFrame
     
     createRoundedCorners(autoEquipToggle, 6)
-    createStroke(autoEquipToggle, 2, State.autoEquip and COLORS.Black or COLORS.White)
+    local autoEquipStroke = createStroke(autoEquipToggle, 2, State.autoEquip and COLORS.Black or COLORS.White)
     
-    -- Minimized Bar (same size as title bar)
     local minimizedBar = Instance.new("Frame")
     minimizedBar.Name = "MinimizedBar"
-    minimizedBar.Size = UDim2.new(0, 300, 0, 32)  -- Same width and height as main container
+    minimizedBar.Size = UDim2.new(0, 300, 0, 32)
     minimizedBar.Position = UDim2.new(0, 20, 0, 100)
     minimizedBar.BackgroundColor3 = COLORS.Card
     minimizedBar.BorderSizePixel = 0
@@ -682,10 +663,9 @@ local function createGUI()
     minimizedBar.Visible = false
     minimizedBar.Parent = gui
     
-    createRoundedCorners(minimizedBar, 8)
+    createRoundedCorners(minimizedBar, 12)
     createStroke(minimizedBar, 1, COLORS.Border)
     
-    -- Rotating icon in minimized bar
     local minimizedIconContainer = Instance.new("Frame")
     minimizedIconContainer.Name = "MinimizedIconContainer"
     minimizedIconContainer.Size = UDim2.new(0, 24, 0, 24)
@@ -703,7 +683,6 @@ local function createGUI()
     minimizedYinYangIcon.ScaleType = Enum.ScaleType.Fit
     minimizedYinYangIcon.Parent = minimizedIconContainer
     
-    -- Start rotation animation for minimized icon
     task.spawn(function()
         while minimizedYinYangIcon and minimizedYinYangIcon.Parent do
             TweenService:Create(minimizedYinYangIcon, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
@@ -714,7 +693,6 @@ local function createGUI()
         end
     end)
     
-    -- Full title in minimized bar
     local minimizedTitle = Instance.new("TextLabel")
     minimizedTitle.Name = "MinimizedTitle"
     minimizedTitle.Size = UDim2.new(1, -70, 1, 0)
@@ -727,7 +705,6 @@ local function createGUI()
     minimizedTitle.TextXAlignment = Enum.TextXAlignment.Left
     minimizedTitle.Parent = minimizedBar
     
-    -- Restore Button (plus symbol for expand)
     local restoreButton = Instance.new("TextButton")
     restoreButton.Name = "RestoreButton"
     restoreButton.Size = UDim2.new(0, 24, 0, 24)
@@ -741,13 +718,9 @@ local function createGUI()
     restoreButton.AutoButtonColor = false
     restoreButton.Parent = minimizedBar
     
-    local restoreCorners = Instance.new("UICorner")
-    restoreCorners.CornerRadius = UDim.new(0, 6)
-    restoreCorners.Parent = restoreButton
-    
+    createRoundedCorners(restoreButton, 6)
     createStroke(restoreButton, 1, COLORS.Border)
     
-    -- Button hover effects
     local function setupButtonHover(button, defaultColor, hoverColor, textDefault, textHover)
         button.MouseEnter:Connect(function()
             TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -772,14 +745,10 @@ local function createGUI()
         end)
     end
     
-    -- Settings button hover
     setupButtonHover(settingsButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
-    
-    -- Min/Restore buttons
     setupButtonHover(minimizeButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
     setupButtonHover(restoreButton, COLORS.Card, Color3.fromRGB(50, 50, 50), COLORS.TextSecondary, COLORS.White)
     
-    -- Start button (white button)
     startButton.MouseEnter:Connect(function()
         TweenService:Create(startButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = Color3.fromRGB(230, 230, 230),
@@ -794,7 +763,6 @@ local function createGUI()
         }):Play()
     end)
     
-    -- Stop button (black button)
     stopButton.MouseEnter:Connect(function()
         TweenService:Create(stopButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = Color3.fromRGB(50, 50, 50),
@@ -809,7 +777,6 @@ local function createGUI()
         }):Play()
     end)
     
-    -- Auto-equip toggle functionality
     autoEquipToggle.MouseButton1Click:Connect(function()
         State.autoEquip = not State.autoEquip
         
@@ -817,20 +784,19 @@ local function createGUI()
             autoEquipToggle.BackgroundColor3 = COLORS.White
             autoEquipToggle.TextColor3 = COLORS.Black
             autoEquipToggle.Text = "ON"
-            TweenService:Create(autoEquipToggle.UIStroke, TweenInfo.new(0.15), {
+            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15), {
                 Color = COLORS.Black
             }):Play()
         else
             autoEquipToggle.BackgroundColor3 = COLORS.Black
             autoEquipToggle.TextColor3 = COLORS.White
             autoEquipToggle.Text = "OFF"
-            TweenService:Create(autoEquipToggle.UIStroke, TweenInfo.new(0.15), {
+            TweenService:Create(autoEquipStroke, TweenInfo.new(0.15), {
                 Color = COLORS.White
             }):Play()
         end
     end)
     
-    -- Settings toggle
     local isSettingsOpen = false
     
     settingsButton.MouseButton1Click:Connect(function()
@@ -843,7 +809,7 @@ local function createGUI()
             contentArea.Visible = true
             settingsPanel.Visible = false
         end
-    end)
+    end
     
     return {
         GUI = gui,
@@ -863,7 +829,6 @@ end
 
 local guiElements = createGUI()
 
--- Update functions
 local function updateStatus()
     if State.isRunning then
         guiElements.StatusValue.Text = "ON"
@@ -884,14 +849,13 @@ local function updateTargetInfo()
     end
 end
 
--- Control functions
 local function startFiring()
     if not State.isRunning then
         State.isRunning = true
         updateStatus()
         task.spawn(farmingLoop)
+        task.spawn(updateTargetLoop)
         
-        -- Button press animation
         TweenService:Create(guiElements.StartButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Size = UDim2.new(0, 132, 0, 32)
         }):Play()
@@ -909,7 +873,6 @@ local function stopFiring()
         updateStatus()
         updateTargetInfo()
         
-        -- Button press animation
         TweenService:Create(guiElements.StopButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Size = UDim2.new(0, 132, 0, 32)
         }):Play()
@@ -920,11 +883,9 @@ local function stopFiring()
     end
 end
 
--- Event connections
 guiElements.StartButton.MouseButton1Click:Connect(startFiring)
 guiElements.StopButton.MouseButton1Click:Connect(stopFiring)
 
--- Fixed minimize/restore functionality
 local isMinimizing = false
 
 guiElements.MinimizeButton.MouseButton1Click:Connect(function()
@@ -933,14 +894,12 @@ guiElements.MinimizeButton.MouseButton1Click:Connect(function()
     
     local startPos = guiElements.MainContainer.Position
     
-    -- Animate collapse
     TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, 300, 0, 32)
     }):Play()
     
     task.wait(0.25)
     
-    -- Hide main container, show minimized bar at same position
     guiElements.MainContainer.Visible = false
     guiElements.MinimizedBar.Position = startPos
     guiElements.MinimizedBar.Visible = true
@@ -954,13 +913,11 @@ guiElements.RestoreButton.MouseButton1Click:Connect(function()
     
     local minimizedPos = guiElements.MinimizedBar.Position
     
-    -- Hide minimized bar, show main container at same position with minimized size
     guiElements.MinimizedBar.Visible = false
     guiElements.MainContainer.Position = minimizedPos
     guiElements.MainContainer.Size = UDim2.new(0, 300, 0, 32)
     guiElements.MainContainer.Visible = true
     
-    -- Animate expand
     TweenService:Create(guiElements.MainContainer, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, 300, 0, 180)
     }):Play()
@@ -969,14 +926,12 @@ guiElements.RestoreButton.MouseButton1Click:Connect(function()
     isMinimizing = false
 end)
 
--- Initialize
 updateStatus()
 updateTargetInfo()
 
--- Start farming loop automatically since it starts ON
 task.spawn(farmingLoop)
+task.spawn(updateTargetLoop)
 
--- Update target info periodically
 task.spawn(function()
     while guiElements.GUI.Parent do
         updateTargetInfo()
