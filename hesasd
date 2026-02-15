@@ -24,12 +24,12 @@ lastFireTime = 0,
 currentTarget = nil,
 chargeValue = 100,
 playerAlive = true,
-shootingEnabled = true,
+shootingEnabled = false,
 shootingErrors = 0,
 maxShootingErrors = 10,
 lastToolEquipTime = 0,
 toolEquipCooldown = 2,
-autoEquip = true
+autoEquip = false
 }
 
 local cache = {
