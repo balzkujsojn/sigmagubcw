@@ -1,13 +1,20 @@
 --// =========================================================
 --// SexyBlaster9000 - Windows XP UI + Equinox Cannon Logic
+--// + Furniture Spawner
 --// =========================================================
 
 repeat task.wait() until game:IsLoaded()
+
+--// =========================================================
+--// Services
+--// =========================================================
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 
 repeat task.wait() until Players.LocalPlayer
@@ -32,27 +39,41 @@ local IGNORE_ENEMIES = {
 }
 
 --// =========================================================
+--// Furniture Configuration
+--// =========================================================
+
+local FURNITURE_CONFIG = {
+    Title = "Furniture Spawner",
+    ToolName = "Heavy Egg",
+    RemoteName = "RemoteFunction"
+}
+
+local FURNITURE_TYPE_OPTIONS = {
+    "Furniture",
+    "Eggs",
+    "Gifts",
+    "All"
+}
+
+local selectedFurnitureType = "Furniture"
+
+--// =========================================================
 --// XP Fonts
 --// =========================================================
 
 local XP_FONT = Enum.Font.Arial
 local XP_FONT_BOLD = Enum.Font.ArialBold
 
-pcall(function()
-    if Enum.Font.Tahoma then
-        XP_FONT = Enum.Font.Tahoma
-    end
-
-    if Enum.Font.TahomaBold then
-        XP_FONT_BOLD = Enum.Font.TahomaBold
-    end
-end)
+-- Cleaner Roblox rendering for small XP-style UI text.
+local XP_FONT_UI = Enum.Font.SourceSans
+local XP_FONT_UI_BOLD = Enum.Font.SourceSansBold
 
 --// =========================================================
 --// State
 --// =========================================================
 
 local State = {
+
     isRunning = false,
 
     currentTarget = nil,
@@ -73,6 +94,44 @@ local State = {
 
     autoEquip = false
 }
+
+--// =========================================================
+--// Furniture State
+--// =========================================================
+
+local furnitureState = {
+
+    selectedModel = nil,
+    selectedButton = nil,
+
+    waitingForClick = false,
+    refreshing = false,
+
+    modelButtons = {},
+
+    statusVersion = 0,
+    searchDebounce = false,
+
+    scrollbarDragging = false,
+    scrollbarDragStart = nil,
+    scrollbarStartCanvasY = 0
+}
+
+local furnitureBaseFolder =
+    Workspace
+        :WaitForChild("Bases")
+        :WaitForChild("Base1")
+        :WaitForChild("objects")
+
+--// =========================================================
+--// Forward Declarations
+--// =========================================================
+
+local updateFurnitureScrollbar
+local furnitureScrollBy
+
+local showCannonMissingError
+local showFurnitureMissingError
 
 --// =========================================================
 --// Runtime Cache
@@ -103,10 +162,10 @@ local RESIZE_CURSOR =
 --// =========================================================
 
 local MAIN_DEFAULT_WIDTH = 270
-local MAIN_DEFAULT_HEIGHT = 166
+local MAIN_DEFAULT_HEIGHT = 214
 
 local MAIN_MIN_WIDTH = 220
-local MAIN_MIN_HEIGHT = 166
+local MAIN_MIN_HEIGHT = 214
 
 local MAIN_MAX_WIDTH = 500
 local MAIN_MAX_HEIGHT = 400
@@ -118,13 +177,26 @@ local MAIN_MINIMIZED_HEIGHT = 31
 --// =========================================================
 
 local SETTINGS_DEFAULT_WIDTH = 270
-local SETTINGS_DEFAULT_HEIGHT = 160
+local SETTINGS_DEFAULT_HEIGHT = 215
 
 local SETTINGS_MIN_WIDTH = 220
-local SETTINGS_MIN_HEIGHT = 120
+local SETTINGS_MIN_HEIGHT = 180
 
 local SETTINGS_MAX_WIDTH = 500
 local SETTINGS_MAX_HEIGHT = 360
+
+--// =========================================================
+--// Furniture Window
+--// =========================================================
+
+local FURNITURE_DEFAULT_WIDTH = 340
+local FURNITURE_DEFAULT_HEIGHT = 470
+
+local FURNITURE_MIN_WIDTH = 260
+local FURNITURE_MIN_HEIGHT = 280
+
+local FURNITURE_MAX_WIDTH = 600
+local FURNITURE_MAX_HEIGHT = 700
 
 --// =========================================================
 --// Error Window
@@ -145,31 +217,218 @@ local ERROR_SOUND_ID =
 --// =========================================================
 
 local XP = {
-    TitleBlueTop = Color3.fromRGB(42, 124, 238),
-    TitleBlueBottom = Color3.fromRGB(5, 76, 190),
-    TitleBlueDark = Color3.fromRGB(0, 55, 145),
 
-    WindowOuter = Color3.fromRGB(236, 233, 216),
-    WindowInner = Color3.fromRGB(245, 243, 235),
+    TitleBlueTop =
+        Color3.fromRGB(
+            42,
+            124,
+            238
+        ),
 
-    ButtonTop = Color3.fromRGB(255, 255, 255),
-    ButtonMiddle = Color3.fromRGB(236, 233, 216),
-    ButtonBottom = Color3.fromRGB(210, 207, 194),
+    TitleBlueBottom =
+        Color3.fromRGB(
+            5,
+            76,
+            190
+        ),
 
-    Text = Color3.fromRGB(20, 20, 20),
-    TextSecondary = Color3.fromRGB(75, 75, 75),
+    TitleBlueDark =
+        Color3.fromRGB(
+            0,
+            55,
+            145
+        ),
 
-    BorderDark = Color3.fromRGB(123, 121, 115),
-    BorderLight = Color3.fromRGB(255, 255, 255),
+    WindowOuter =
+        Color3.fromRGB(
+            236,
+            233,
+            216
+        ),
 
-    Green = Color3.fromRGB(35, 160, 65),
-    GreenDark = Color3.fromRGB(20, 110, 45),
+    WindowInner =
+        Color3.fromRGB(
+            245,
+            243,
+            235
+        ),
 
-    Red = Color3.fromRGB(210, 55, 45),
-    RedDark = Color3.fromRGB(150, 25, 20),
+    ButtonTop =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        ),
 
-    Blue = Color3.fromRGB(49, 106, 197),
-    BlueDark = Color3.fromRGB(31, 78, 155)
+    ButtonMiddle =
+        Color3.fromRGB(
+            236,
+            233,
+            216
+        ),
+
+    ButtonBottom =
+        Color3.fromRGB(
+            210,
+            207,
+            194
+        ),
+
+    Text =
+        Color3.fromRGB(
+            20,
+            20,
+            20
+        ),
+
+    TextSecondary =
+        Color3.fromRGB(
+            75,
+            75,
+            75
+        ),
+
+    BorderDark =
+        Color3.fromRGB(
+            123,
+            121,
+            115
+        ),
+
+    BorderLight =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        ),
+
+    Green =
+        Color3.fromRGB(
+            35,
+            160,
+            65
+        ),
+
+    GreenDark =
+        Color3.fromRGB(
+            20,
+            110,
+            45
+        ),
+
+    Red =
+        Color3.fromRGB(
+            210,
+            55,
+            45
+        ),
+
+    RedDark =
+        Color3.fromRGB(
+            150,
+            25,
+            20
+        ),
+
+    Blue =
+        Color3.fromRGB(
+            49,
+            106,
+            197
+        ),
+
+    BlueDark =
+        Color3.fromRGB(
+            31,
+            78,
+            155
+        ),
+
+    SelectedBlue =
+        Color3.fromRGB(
+            49,
+            106,
+            197
+        ),
+
+    SelectedBlueDark =
+        Color3.fromRGB(
+            28,
+            68,
+            135
+        ),
+
+    --// XP scrollbar
+
+    ScrollTrack =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        ),
+
+    ScrollBorder =
+        Color3.fromRGB(
+            166,
+            166,
+            166
+        ),
+
+    ScrollButtonTop =
+        Color3.fromRGB(
+            250,
+            252,
+            255
+        ),
+
+    ScrollButtonBottom =
+        Color3.fromRGB(
+            184,
+            207,
+            239
+        ),
+
+    ScrollArrow =
+        Color3.fromRGB(
+            45,
+            82,
+            145
+        ),
+
+    ScrollThumbTop =
+        Color3.fromRGB(
+            145,
+            183,
+            239
+        ),
+
+    ScrollThumbBottom =
+        Color3.fromRGB(
+            78,
+            128,
+            215
+        ),
+
+    ScrollThumbBorder =
+        Color3.fromRGB(
+            53,
+            101,
+            188
+        ),
+
+    ScrollThumbHighlight =
+        Color3.fromRGB(
+            222,
+            234,
+            249
+        ),
+
+    ScrollGrip =
+        Color3.fromRGB(
+            72,
+            108,
+            169
+        )
 }
 
 --// =========================================================
@@ -191,6 +450,7 @@ local targetButton
 local targetValue
 
 local settingsButton
+local furnitureButton
 
 local mainMinimizeButton
 local mainMaximizeButton
@@ -209,6 +469,37 @@ local settingsResizeHandle
 local autoEquipButton
 local autoEquipCheck
 
+--// Furniture GUI
+
+local furnitureWindow
+local furnitureTitleBar
+local furnitureContent
+
+local furnitureMinimizeButton
+local furnitureMaximizeButton
+local furnitureCloseButton
+local furnitureResizeHandle
+
+local furnitureSearchBox
+local furnitureScroll
+local furnitureSelectedValue
+local furnitureRefreshButton
+
+--// Furniture scrollbar
+
+local furnitureScrollbar
+local furnitureScrollUp
+local furnitureScrollDown
+local furnitureScrollTrack
+local furnitureScrollThumb
+
+--// Settings furniture type
+
+local furnitureTypeButton
+local furnitureTypeValue
+local furnitureTypeDropdown
+local furnitureTypeOptionsFrame
+
 --// =========================================================
 --// Window State
 --// =========================================================
@@ -219,6 +510,9 @@ local mainMaximized = false
 local settingsMinimized = false
 local settingsMaximized = false
 
+local furnitureMinimized = false
+local furnitureMaximized = false
+
 local guiClosed = false
 
 local mainNormalPosition
@@ -227,6 +521,9 @@ local mainRestoreSize
 
 local settingsNormalPosition
 local settingsNormalSize
+
+local furnitureNormalPosition
+local furnitureNormalSize
 
 --// =========================================================
 --// Error Windows
@@ -238,16 +535,24 @@ local activeErrorWindows = {}
 --// Utility
 --// =========================================================
 
-local function tween(object, properties, duration, style, direction)
+local function tween(
+    object,
+    properties,
+    duration,
+    style,
+    direction
+)
+
     if not object then
         return nil
     end
 
-    local info = TweenInfo.new(
-        duration or 0.25,
-        style or Enum.EasingStyle.Quad,
-        direction or Enum.EasingDirection.Out
-    )
+    local info =
+        TweenInfo.new(
+            duration or 0.25,
+            style or Enum.EasingStyle.Quad,
+            direction or Enum.EasingDirection.Out
+        )
 
     local tweenObject =
         TweenService:Create(
@@ -261,37 +566,85 @@ local function tween(object, properties, duration, style, direction)
     return tweenObject
 end
 
-local function addCorner(parent, radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius)
-    corner.Parent = parent
+local function addCorner(
+    parent,
+    radius
+)
+
+    local corner =
+        Instance.new("UICorner")
+
+    corner.CornerRadius =
+        UDim.new(
+            0,
+            radius
+        )
+
+    corner.Parent =
+        parent
+
     return corner
 end
 
-local function addStroke(parent, color, thickness)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color
-    stroke.Thickness = thickness or 1
-    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    stroke.Parent = parent
+local function addStroke(
+    parent,
+    color,
+    thickness
+)
+
+    local stroke =
+        Instance.new("UIStroke")
+
+    stroke.Color =
+        color
+
+    stroke.Thickness =
+        thickness or 1
+
+    stroke.ApplyStrokeMode =
+        Enum.ApplyStrokeMode.Border
+
+    stroke.Parent =
+        parent
+
     return stroke
 end
 
-local function addGradient(parent, topColor, bottomColor)
-    local gradient = Instance.new("UIGradient")
+local function addGradient(
+    parent,
+    topColor,
+    bottomColor
+)
 
-    gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, topColor),
-        ColorSequenceKeypoint.new(1, bottomColor)
-    })
+    local gradient =
+        Instance.new("UIGradient")
+
+    gradient.Color =
+        ColorSequence.new({
+
+            ColorSequenceKeypoint.new(
+                0,
+                topColor
+            ),
+
+            ColorSequenceKeypoint.new(
+                1,
+                bottomColor
+            )
+        })
 
     gradient.Rotation = 90
-    gradient.Parent = parent
+
+    gradient.Parent =
+        parent
 
     return gradient
 end
 
-local function safeDestroy(object)
+local function safeDestroy(
+    object
+)
+
     if not object then
         return
     end
@@ -301,21 +654,37 @@ local function safeDestroy(object)
     end)
 end
 
-local function setResizeCursor(enabled)
+local function setResizeCursor(
+    enabled
+)
+
     pcall(function()
+
         if enabled then
-            mouse.Icon = RESIZE_CURSOR
+            mouse.Icon =
+                RESIZE_CURSOR
         else
-            mouse.Icon = ""
+            mouse.Icon =
+                ""
         end
+
     end)
+end
+
+local function isShiftHeld()
+
+    return
+        UserInputService:IsKeyDown(
+            Enum.KeyCode.LeftShift
+        )
+        or
+        UserInputService:IsKeyDown(
+            Enum.KeyCode.RightShift
+        )
 end
 
 --// =========================================================
 --// Window Control Icons
---//
---// These are used by BOTH the main window and the settings
---// window so the icons are identical and perfectly centered.
 --// =========================================================
 
 local function createWindowControlIcon(
@@ -324,14 +693,18 @@ local function createWindowControlIcon(
     zIndex
 )
 
-    -- Remove any previous icon objects.
-    for _, child in ipairs(button:GetChildren()) do
+    for _, child in ipairs(
+        button:GetChildren()
+    ) do
 
-        if child.Name == "WindowControlIcon"
-            or child.Name == "WindowControlPart" then
+        if child.Name ==
+            "WindowControlIcon"
+            or child.Name ==
+            "WindowControlPart" then
 
             child:Destroy()
         end
+
     end
 
     local white =
@@ -340,10 +713,6 @@ local function createWindowControlIcon(
             255,
             255
         )
-
-    --=========================================================
-    -- Minimize
-    --=========================================================
 
     if controlType == "minimize" then
 
@@ -374,7 +743,8 @@ local function createWindowControlIcon(
         line.BackgroundColor3 =
             white
 
-        line.BorderSizePixel = 0
+        line.BorderSizePixel =
+            0
 
         line.ZIndex =
             zIndex or 20
@@ -384,10 +754,6 @@ local function createWindowControlIcon(
 
         return
     end
-
-    --=========================================================
-    -- Maximize
-    --=========================================================
 
     if controlType == "maximize" then
 
@@ -415,9 +781,11 @@ local function createWindowControlIcon(
                 0.5
             )
 
-        square.BackgroundTransparency = 1
+        square.BackgroundTransparency =
+            1
 
-        square.BorderSizePixel = 0
+        square.BorderSizePixel =
+            0
 
         square.ZIndex =
             zIndex or 20
@@ -433,10 +801,6 @@ local function createWindowControlIcon(
 
         return
     end
-
-    --=========================================================
-    -- Close
-    --=========================================================
 
     if controlType == "close" then
 
@@ -464,12 +828,14 @@ local function createWindowControlIcon(
                 0.5
             )
 
-        lineA.Rotation = 45
+        lineA.Rotation =
+            45
 
         lineA.BackgroundColor3 =
             white
 
-        lineA.BorderSizePixel = 0
+        lineA.BorderSizePixel =
+            0
 
         lineA.ZIndex =
             zIndex or 20
@@ -501,20 +867,20 @@ local function createWindowControlIcon(
                 0.5
             )
 
-        lineB.Rotation = -45
+        lineB.Rotation =
+            -45
 
         lineB.BackgroundColor3 =
             white
 
-        lineB.BorderSizePixel = 0
+        lineB.BorderSizePixel =
+            0
 
         lineB.ZIndex =
             zIndex or 20
 
         lineB.Parent =
             button
-
-        return
     end
 end
 
@@ -533,21 +899,29 @@ local function createXPButton(
     local button =
         Instance.new("TextButton")
 
-    button.Size = size
-    button.Position = position
+    button.Size =
+        size
+
+    button.Position =
+        position
 
     button.BackgroundColor3 =
         XP.ButtonMiddle
 
-    button.BorderSizePixel = 0
+    button.BorderSizePixel =
+        0
 
-    button.Text = ""
-    button.AutoButtonColor = false
+    button.Text =
+        ""
+
+    button.AutoButtonColor =
+        false
 
     button.ZIndex =
         zIndex or 5
 
-    button.Parent = parent
+    button.Parent =
+        parent
 
     addStroke(
         button,
@@ -556,6 +930,7 @@ local function createXPButton(
     )
 
     if rounded then
+
         addCorner(
             button,
             3
@@ -592,6 +967,7 @@ local function createXPButton(
         button
 
     if rounded then
+
         addCorner(
             highlight,
             2
@@ -626,6 +1002,7 @@ local function createXPButton(
 
             gradient.Color =
                 ColorSequence.new({
+
                     ColorSequenceKeypoint.new(
                         0,
                         Color3.fromRGB(
@@ -659,6 +1036,7 @@ local function createXPButton(
 
             gradient.Color =
                 ColorSequence.new({
+
                     ColorSequenceKeypoint.new(
                         0,
                         XP.ButtonTop
@@ -682,6 +1060,7 @@ local function createXPButton(
 
             gradient.Color =
                 ColorSequence.new({
+
                     ColorSequenceKeypoint.new(
                         0,
                         Color3.fromRGB(
@@ -723,6 +1102,7 @@ local function createXPButton(
 
             gradient.Color =
                 ColorSequence.new({
+
                     ColorSequenceKeypoint.new(
                         0,
                         XP.ButtonTop
@@ -740,7 +1120,7 @@ local function createXPButton(
 end
 
 --// =========================================================
---// XP Icon
+--// XP Image
 --// =========================================================
 
 local function createXPImage(
@@ -779,7 +1159,8 @@ local function createXPImage(
             "UIAspectRatioConstraint"
         )
 
-    aspect.AspectRatio = 1
+    aspect.AspectRatio =
+        1
 
     aspect.DominantAxis =
         Enum.DominantAxis.Height
@@ -853,6 +1234,47 @@ local function hasEquinoxCannon()
     return false
 end
 
+local function hasHeavyEgg()
+
+    local character =
+        player.Character
+
+    if character then
+
+        local equippedTool =
+            character:FindFirstChild(
+                FURNITURE_CONFIG.ToolName
+            )
+
+        if equippedTool
+            and equippedTool:IsA("Tool") then
+
+            return true
+        end
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    if backpack then
+
+        local inventoryTool =
+            backpack:FindFirstChild(
+                FURNITURE_CONFIG.ToolName
+            )
+
+        if inventoryTool
+            and inventoryTool:IsA("Tool") then
+
+            return true
+        end
+    end
+
+    return false
+end
+
 local function autoEquipTool()
 
     if not State.autoEquip
@@ -862,7 +1284,8 @@ local function autoEquipTool()
         return false
     end
 
-    local now = tick()
+    local now =
+        tick()
 
     if now - State.lastToolEquipTime
         < State.toolEquipCooldown then
@@ -894,7 +1317,8 @@ local function autoEquipTool()
     if equippedTool
         and equippedTool:IsA("Tool") then
 
-        State.lastToolEquipTime = now
+        State.lastToolEquipTime =
+            now
 
         return true
     end
@@ -920,23 +1344,1167 @@ local function autoEquipTool()
     end
 
     pcall(function()
-        humanoid:EquipTool(tool)
+
+        humanoid:EquipTool(
+            tool
+        )
+
     end)
 
-    task.wait(0.1)
+    task.wait(
+        0.1
+    )
 
-    State.lastToolEquipTime = now
+    State.lastToolEquipTime =
+        now
 
     return true
 end
 
 --// =========================================================
+--// Furniture Remote
+--// =========================================================
+
+local function getFurnitureRemote()
+
+    local character =
+        player.Character
+
+    local tool
+
+    if character then
+
+        tool =
+            character:FindFirstChild(
+                FURNITURE_CONFIG.ToolName
+            )
+    end
+
+    if not tool then
+
+        local backpack =
+            player:FindFirstChildOfClass(
+                "Backpack"
+            )
+
+        if backpack then
+
+            tool =
+                backpack:FindFirstChild(
+                    FURNITURE_CONFIG.ToolName
+                )
+        end
+    end
+
+    if not tool
+        or not tool:IsA("Tool") then
+
+        return nil
+    end
+
+    local remote =
+        tool:FindFirstChild(
+            FURNITURE_CONFIG.RemoteName
+        )
+
+    if not remote
+        or not remote:IsA("RemoteFunction") then
+
+        return nil
+    end
+
+    return remote
+end
+
+--// =========================================================
+--// Furniture Filtering
+--// =========================================================
+
+local function furnitureMatchesType(
+    objectName
+)
+
+    local nameLower =
+        objectName:lower()
+
+    if selectedFurnitureType ==
+        "All" then
+
+        return true
+    end
+
+    local isEgg =
+        nameLower:find(
+            "egg",
+            1,
+            true
+        ) ~= nil
+
+    local isGift =
+        nameLower:find(
+            "gift",
+            1,
+            true
+        ) ~= nil
+
+    if selectedFurnitureType ==
+        "Furniture" then
+
+        return not isEgg
+            and not isGift
+    end
+
+    if selectedFurnitureType ==
+        "Eggs" then
+
+        return isEgg
+    end
+
+    if selectedFurnitureType ==
+        "Gifts" then
+
+        return isGift
+    end
+
+    return true
+end
+
+--// =========================================================
+--// Furniture Status
+--// =========================================================
+
+local function setFurnitureStatus(
+    text,
+    state
+)
+
+    if not furnitureSelectedValue then
+        return
+    end
+
+    furnitureState.statusVersion +=
+        1
+
+    local currentVersion =
+        furnitureState.statusVersion
+
+    local color =
+        XP.TextSecondary
+
+    if state == "success" then
+
+        color =
+            XP.GreenDark
+
+    elseif state == "error" then
+
+        color =
+            XP.RedDark
+
+    elseif state == "active" then
+
+        color =
+            XP.BlueDark
+    end
+
+    tween(
+        furnitureSelectedValue,
+        {
+            TextTransparency =
+                1
+        },
+        0.12
+    )
+
+    task.delay(
+        0.12,
+        function()
+
+            if currentVersion ~=
+                furnitureState.statusVersion then
+
+                return
+            end
+
+            furnitureSelectedValue.Text =
+                text
+
+            furnitureSelectedValue.TextColor3 =
+                color
+
+            tween(
+                furnitureSelectedValue,
+                {
+                    TextTransparency =
+                        0
+                },
+                0.16
+            )
+        end
+    )
+end
+
+--// =========================================================
+--// Furniture Selection Styling
+--// =========================================================
+
+local function setFurnitureButtonNormal(
+    button
+)
+
+    if not button
+        or not button.Parent then
+
+        return
+    end
+
+    local gradient =
+        button:FindFirstChildOfClass(
+            "UIGradient"
+        )
+
+    if gradient then
+
+        gradient.Enabled =
+            true
+
+        gradient.Color =
+            ColorSequence.new({
+
+                ColorSequenceKeypoint.new(
+                    0,
+                    XP.ButtonTop
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    XP.ButtonBottom
+                )
+            })
+    end
+
+    button.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    button.TextColor3 =
+        XP.Text
+
+    local stroke =
+        button:FindFirstChildOfClass(
+            "UIStroke"
+        )
+
+    if stroke then
+
+        stroke.Color =
+            XP.BorderDark
+    end
+end
+
+local function setFurnitureButtonSelected(
+    button
+)
+
+    if not button
+        or not button.Parent then
+
+        return
+    end
+
+    local gradient =
+        button:FindFirstChildOfClass(
+            "UIGradient"
+        )
+
+    if gradient then
+        gradient.Enabled =
+            false
+    end
+
+    button.BackgroundColor3 =
+        XP.SelectedBlue
+
+    button.TextColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    local stroke =
+        button:FindFirstChildOfClass(
+            "UIStroke"
+        )
+
+    if stroke then
+
+        stroke.Color =
+            XP.SelectedBlueDark
+    end
+end
+
+--// =========================================================
+--// Clear Furniture Selection
+--// =========================================================
+
+local function clearFurnitureSelection()
+
+    if furnitureState.selectedButton then
+
+        setFurnitureButtonNormal(
+            furnitureState.selectedButton
+        )
+
+        furnitureState.selectedButton =
+            nil
+    end
+
+    furnitureState.selectedModel =
+        nil
+
+    furnitureState.waitingForClick =
+        false
+
+    setFurnitureStatus(
+        "Select a model → click in game",
+        "normal"
+    )
+end
+
+--// =========================================================
+--// Select Furniture
+--// =========================================================
+
+local function selectFurnitureModel(
+    model,
+    button
+)
+
+    if furnitureState.selectedModel ==
+        model then
+
+        clearFurnitureSelection()
+
+        return
+    end
+
+    if furnitureState.selectedButton then
+
+        setFurnitureButtonNormal(
+            furnitureState.selectedButton
+        )
+    end
+
+    furnitureState.selectedModel =
+        model
+
+    furnitureState.selectedButton =
+        button
+
+    furnitureState.waitingForClick =
+        true
+
+    setFurnitureButtonSelected(
+        button
+    )
+
+    setFurnitureStatus(
+        "Selected: " ..
+        model.Name ..
+        " → click in game",
+        "active"
+    )
+end
+
+--// =========================================================
+--// Furniture Model Button
+--// =========================================================
+
+local function createFurnitureModelButton(
+    object,
+    index
+)
+
+    local button =
+        Instance.new("TextButton")
+
+    button.Name =
+        "FurnitureModelButton"
+
+    button.Size =
+        UDim2.new(
+            1,
+            -4,
+            0,
+            30
+        )
+
+    button.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    button.BorderSizePixel =
+        0
+
+    button.Text =
+        object.Name
+
+    button.TextColor3 =
+        XP.Text
+
+    button.Font =
+        XP_FONT_UI
+
+    button.TextSize =
+        12
+
+    button.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    button.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    button.TextTruncate =
+        Enum.TextTruncate.AtEnd
+
+    button.TextScaled =
+        false
+
+    button.TextWrapped =
+        false
+
+    button.AutoButtonColor =
+        false
+
+    button.LayoutOrder =
+        index
+
+    button.ZIndex =
+        7
+
+    button.Parent =
+        furnitureScroll
+
+    addCorner(
+        button,
+        2
+    )
+
+    addStroke(
+        button,
+        XP.BorderDark,
+        1
+    )
+
+    local padding =
+        Instance.new(
+            "UIPadding"
+        )
+
+    padding.PaddingLeft =
+        UDim.new(
+            0,
+            8
+        )
+
+    padding.PaddingRight =
+        UDim.new(
+            0,
+            6
+        )
+
+    padding.Parent =
+        button
+
+    local buttonGradient =
+        addGradient(
+            button,
+            XP.ButtonTop,
+            XP.ButtonBottom
+        )
+
+    button.BackgroundTransparency =
+        1
+
+    button.TextTransparency =
+        1
+
+    task.delay(
+        math.min(
+            index * 0.012,
+            0.15
+        ),
+        function()
+
+            if not button.Parent then
+                return
+            end
+
+            tween(
+                button,
+                {
+                    BackgroundTransparency =
+                        0,
+
+                    TextTransparency =
+                        0
+                },
+                0.16
+            )
+        end
+    )
+
+    button.MouseEnter:Connect(
+        function()
+
+            if furnitureState.selectedButton ==
+                button then
+
+                return
+            end
+
+            buttonGradient.Enabled =
+                true
+
+            buttonGradient.Color =
+                ColorSequence.new({
+
+                    ColorSequenceKeypoint.new(
+                        0,
+                        Color3.fromRGB(
+                            255,
+                            255,
+                            255
+                        )
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        Color3.fromRGB(
+                            222,
+                            220,
+                            210
+                        )
+                    )
+                })
+        end
+    )
+
+    button.MouseLeave:Connect(
+        function()
+
+            if furnitureState.selectedButton ==
+                button then
+
+                return
+            end
+
+            buttonGradient.Enabled =
+                true
+
+            buttonGradient.Color =
+                ColorSequence.new({
+
+                    ColorSequenceKeypoint.new(
+                        0,
+                        XP.ButtonTop
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        XP.ButtonBottom
+                    )
+                })
+        end
+    )
+
+    button.MouseButton1Down:Connect(
+        function()
+
+            if furnitureState.selectedButton ==
+                button then
+
+                return
+            end
+
+            buttonGradient.Enabled =
+                true
+
+            buttonGradient.Color =
+                ColorSequence.new({
+
+                    ColorSequenceKeypoint.new(
+                        0,
+                        Color3.fromRGB(
+                            205,
+                            202,
+                            190
+                        )
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        Color3.fromRGB(
+                            238,
+                            235,
+                            222
+                        )
+                    )
+                })
+        end
+    )
+
+    button.MouseButton1Click:Connect(
+        function()
+
+            selectFurnitureModel(
+                object,
+                button
+            )
+        end
+    )
+
+    table.insert(
+        furnitureState.modelButtons,
+        button
+    )
+
+    return button
+end
+
+--// =========================================================
+--// Furniture Scrollbar
+--// =========================================================
+
+updateFurnitureScrollbar =
+    function()
+
+        if not furnitureScroll
+            or not furnitureScrollTrack
+            or not furnitureScrollThumb then
+
+            return
+        end
+
+        local trackHeight =
+            furnitureScrollTrack.AbsoluteSize.Y
+
+        if trackHeight <= 0 then
+            return
+        end
+
+        local viewportHeight =
+            furnitureScroll.AbsoluteSize.Y
+
+        local canvasHeight =
+            furnitureScroll.AbsoluteCanvasSize.Y
+
+        local maxCanvas =
+            math.max(
+                0,
+                canvasHeight -
+                viewportHeight
+            )
+
+        if maxCanvas <= 0 then
+
+            furnitureScrollThumb.Size =
+                UDim2.new(
+                    1,
+                    -2,
+                    1,
+                    -2
+                )
+
+            furnitureScrollThumb.Position =
+                UDim2.fromOffset(
+                    1,
+                    1
+                )
+
+            return
+        end
+
+        local ratio =
+            math.clamp(
+                viewportHeight /
+                    canvasHeight,
+                0.08,
+                1
+            )
+
+        local thumbHeight =
+            math.floor(
+                trackHeight *
+                ratio
+            )
+
+        thumbHeight =
+            math.max(
+                28,
+                thumbHeight
+            )
+
+        thumbHeight =
+            math.min(
+                trackHeight,
+                thumbHeight
+            )
+
+        local usableTrack =
+            math.max(
+                1,
+                trackHeight -
+                thumbHeight
+            )
+
+        local scrollRatio =
+            math.clamp(
+                furnitureScroll.CanvasPosition.Y /
+                    maxCanvas,
+                0,
+                1
+            )
+
+        local thumbY =
+            usableTrack *
+            scrollRatio
+
+        furnitureScrollThumb.Size =
+            UDim2.new(
+                1,
+                -2,
+                0,
+                thumbHeight
+            )
+
+        furnitureScrollThumb.Position =
+            UDim2.fromOffset(
+                1,
+                thumbY
+            )
+    end
+
+furnitureScrollBy =
+    function(
+        amount
+    )
+
+        if not furnitureScroll then
+            return
+        end
+
+        local maxCanvas =
+            math.max(
+                0,
+                furnitureScroll.AbsoluteCanvasSize.Y -
+                furnitureScroll.AbsoluteSize.Y
+            )
+
+        furnitureScroll.CanvasPosition =
+            Vector2.new(
+                0,
+                math.clamp(
+                    furnitureScroll.CanvasPosition.Y +
+                        amount,
+                    0,
+                    maxCanvas
+                )
+            )
+
+        updateFurnitureScrollbar()
+    end
+
+--// =========================================================
+--// Refresh Furniture Models
+--// =========================================================
+
+local function refreshFurnitureModels()
+
+    if furnitureState.refreshing then
+        return
+    end
+
+    furnitureState.refreshing =
+        true
+
+    clearFurnitureSelection()
+
+    for _, button in ipairs(
+        furnitureState.modelButtons
+    ) do
+
+        if button
+            and button.Parent then
+
+            tween(
+                button,
+                {
+                    BackgroundTransparency =
+                        1,
+
+                    TextTransparency =
+                        1
+                },
+                0.08
+            )
+        end
+    end
+
+    task.wait(
+        0.09
+    )
+
+    for _, button in ipairs(
+        furnitureState.modelButtons
+    ) do
+
+        safeDestroy(
+            button
+        )
+    end
+
+    furnitureState.modelButtons =
+        {}
+
+    local folder =
+        ReplicatedStorage:FindFirstChild(
+            "Blocks"
+        )
+
+    if not folder then
+
+        setFurnitureStatus(
+            "Blocks folder not found",
+            "error"
+        )
+
+        furnitureState.refreshing =
+            false
+
+        return
+    end
+
+    local searchText =
+        ""
+
+    if furnitureSearchBox then
+
+        searchText =
+            furnitureSearchBox.Text:lower()
+    end
+
+    local count =
+        0
+
+    for _, object in ipairs(
+        folder:GetChildren()
+    ) do
+
+        if object:IsA("Model") then
+
+            local nameLower =
+                object.Name:lower()
+
+            local matchesSearch =
+                searchText == ""
+                or
+                nameLower:find(
+                    searchText,
+                    1,
+                    true
+                )
+
+            local matchesType =
+                furnitureMatchesType(
+                    object.Name
+                )
+
+            if matchesSearch
+                and matchesType then
+
+                count +=
+                    1
+
+                createFurnitureModelButton(
+                    object,
+                    count
+                )
+            end
+        end
+    end
+
+    furnitureScroll.CanvasPosition =
+        Vector2.new(
+            0,
+            0
+        )
+
+    task.defer(
+        updateFurnitureScrollbar
+    )
+
+    if count == 0 then
+
+        setFurnitureStatus(
+            "No matching models",
+            "error"
+        )
+
+    else
+
+        setFurnitureStatus(
+            tostring(count) ..
+            " model" ..
+            (
+                count == 1
+                and ""
+                or "s"
+            ) ..
+            " available",
+            "normal"
+        )
+    end
+
+    furnitureState.refreshing =
+        false
+end
+
+--// =========================================================
+--// Furniture Spawning
+--// =========================================================
+
+local function furnitureMouseSpawn()
+
+    if not furnitureState.waitingForClick then
+        return
+    end
+
+    if not furnitureState.selectedModel then
+        return
+    end
+
+    if UserInputService:GetFocusedTextBox() then
+        return
+    end
+
+    local target =
+        mouse.Target
+
+    if not target then
+        return
+    end
+
+    furnitureState.waitingForClick =
+        false
+
+    local modelToSpawn =
+        furnitureState.selectedModel
+
+    setFurnitureStatus(
+        "Spawning " ..
+        modelToSpawn.Name ..
+        "...",
+        "active"
+    )
+
+    local clickPos =
+        mouse.Hit.Position +
+        Vector3.new(
+            0,
+            3,
+            0
+        )
+
+    local args = {
+
+        [1] =
+            "placeobject",
+
+        [2] = {
+
+            [1] =
+                modelToSpawn,
+
+            [2] =
+                furnitureBaseFolder,
+
+            [3] =
+                CFrame.new(
+                    clickPos
+                ),
+
+            [4] =
+                0
+        }
+    }
+
+    if not hasHeavyEgg() then
+
+        furnitureState.waitingForClick =
+            true
+
+        setFurnitureStatus(
+            "Selected: " ..
+            modelToSpawn.Name ..
+            " → click in game",
+            "active"
+        )
+
+        showFurnitureMissingError()
+
+        return
+    end
+
+    local remote =
+        getFurnitureRemote()
+
+    if not remote then
+
+        furnitureState.waitingForClick =
+            true
+
+        setFurnitureStatus(
+            "Selected: " ..
+            modelToSpawn.Name ..
+            " → click in game",
+            "active"
+        )
+
+        showFurnitureMissingError()
+
+        return
+    end
+
+    local success, err =
+        pcall(
+            function()
+
+                remote:InvokeServer(
+                    unpack(args)
+                )
+            end
+        )
+
+    if success then
+
+        if isShiftHeld() then
+
+            furnitureState.waitingForClick =
+                true
+
+            setFurnitureStatus(
+                "Spawned " ..
+                modelToSpawn.Name ..
+                " → click again",
+                "success"
+            )
+
+        else
+
+            clearFurnitureSelection()
+        end
+
+    else
+
+        setFurnitureStatus(
+            "Spawn failed: " ..
+            modelToSpawn.Name,
+            "error"
+        )
+
+        for index, button in ipairs(
+            furnitureState.modelButtons
+        ) do
+
+            if button
+                and button.Parent
+                and button.Text ==
+                    modelToSpawn.Name then
+
+                local gradient =
+                    button:FindFirstChildOfClass(
+                        "UIGradient"
+                    )
+
+                if gradient then
+                    gradient.Enabled =
+                        false
+                end
+
+                tween(
+                    button,
+                    {
+                        BackgroundColor3 =
+                            XP.Red,
+
+                        TextColor3 =
+                            Color3.fromRGB(
+                                255,
+                                255,
+                                255
+                            )
+                    },
+                    0.12
+                )
+
+                task.delay(
+                    0.15,
+                    function()
+
+                        safeDestroy(
+                            button
+                        )
+                    end
+                )
+
+                table.remove(
+                    furnitureState.modelButtons,
+                    index
+                )
+
+                break
+            end
+        end
+
+        task.wait(
+            0.15
+        )
+
+        furnitureState.selectedModel =
+            nil
+
+        furnitureState.selectedButton =
+            nil
+
+        furnitureState.waitingForClick =
+            false
+
+        setFurnitureStatus(
+            "Spawn failed",
+            "error"
+        )
+
+        warn(
+            "Furniture spawn error: " ..
+            tostring(err)
+        )
+    end
+end
+
+mouse.Button1Down:Connect(
+    furnitureMouseSpawn
+)
+
+--// =========================================================
 --// Target Detection
 --// =========================================================
 
-local function getTargetPart(model)
+local function getTargetPart(
+    model
+)
 
     local possibleParts = {
+
         "HumanoidRootPart",
         "Head",
         "Torso",
@@ -967,6 +2535,7 @@ local function getTargetPart(model)
     ) do
 
         if child:IsA("BasePart") then
+
             return child
         end
     end
@@ -974,13 +2543,17 @@ local function getTargetPart(model)
     return nil
 end
 
-local function isPlayerCharacter(model)
+local function isPlayerCharacter(
+    model
+)
 
     for _, plr in ipairs(
         Players:GetPlayers()
     ) do
 
-        if plr.Character == model then
+        if plr.Character ==
+            model then
+
             return true
         end
     end
@@ -996,7 +2569,8 @@ local function findEnemies()
         return {}
     end
 
-    local now = tick()
+    local now =
+        tick()
 
     if now - cache.lastWorkspaceUpdate
         > cache.workspaceUpdateInterval then
@@ -1004,17 +2578,20 @@ local function findEnemies()
         cache.workspaceChildren =
             workspace:GetChildren()
 
-        cache.lastWorkspaceUpdate = now
+        cache.lastWorkspaceUpdate =
+            now
     end
 
-    local enemies = {}
+    local enemies =
+        {}
 
     for _, model in ipairs(
         cache.workspaceChildren
     ) do
 
         if model:IsA("Model")
-            and model.Parent == workspace then
+            and model.Parent ==
+                workspace then
 
             local humanoid =
                 model:FindFirstChildOfClass(
@@ -1045,11 +2622,21 @@ local function findEnemies()
                         table.insert(
                             enemies,
                             {
-                                Model = model,
-                                Humanoid = humanoid,
-                                TargetPart = targetPart,
-                                Position = targetPart.Position,
-                                Name = model.Name
+
+                                Model =
+                                    model,
+
+                                Humanoid =
+                                    humanoid,
+
+                                TargetPart =
+                                    targetPart,
+
+                                Position =
+                                    targetPart.Position,
+
+                                Name =
+                                    model.Name
                             }
                         )
                     end
@@ -1174,9 +2761,15 @@ local function getValidTool()
         and remote:IsA("RemoteFunction") then
 
         return {
-            Tool = tool,
-            Remote = remote,
-            Handle = handle
+
+            Tool =
+                tool,
+
+            Remote =
+                remote,
+
+            Handle =
+                handle
         }
     end
 
@@ -1208,13 +2801,14 @@ local function attemptFire()
 
     if not toolData then
 
-        State.shootingErrors =
-            State.shootingErrors + 1
+        State.shootingErrors +=
+            1
 
         return
     end
 
-    local now = tick()
+    local now =
+        tick()
 
     if now - State.lastFireTime
         < CONFIG.FIRE_RATE then
@@ -1222,7 +2816,8 @@ local function attemptFire()
         return
     end
 
-    State.lastFireTime = now
+    State.lastFireTime =
+        now
 
     local targetPart =
         State.currentTarget.TargetPart
@@ -1259,7 +2854,10 @@ local function attemptFire()
 
     local startPos =
         targetPos -
-        (direction * 5)
+        (
+            direction *
+            5
+        )
 
     local endPos =
         targetPos
@@ -1281,16 +2879,17 @@ local function attemptFire()
 
     if not fireSuccess then
 
-        State.shootingErrors =
-            State.shootingErrors + 1
+        State.shootingErrors +=
+            1
 
         if State.shootingErrors >
             State.maxShootingErrors then
 
-            State.shootingEnabled = false
+            State.shootingEnabled =
+                false
 
-            recoveryToken =
-                recoveryToken + 1
+            recoveryToken +=
+                1
 
             local currentToken =
                 recoveryToken
@@ -1308,8 +2907,11 @@ local function attemptFire()
                     if State.isRunning
                         and State.playerAlive then
 
-                        State.shootingErrors = 0
-                        State.shootingEnabled = true
+                        State.shootingErrors =
+                            0
+
+                        State.shootingEnabled =
+                            true
                     end
                 end
             )
@@ -1317,7 +2919,8 @@ local function attemptFire()
 
     else
 
-        State.shootingErrors = 0
+        State.shootingErrors =
+            0
     end
 end
 
@@ -1336,7 +2939,8 @@ local function updateStatus()
     if State.isRunning
         and State.shootingEnabled then
 
-        statusValue.Text = "ON"
+        statusValue.Text =
+            "ON"
 
         statusValue.TextColor3 =
             XP.GreenDark
@@ -1349,7 +2953,8 @@ local function updateStatus()
 
     elseif State.isRunning then
 
-        statusValue.Text = "PAUSED"
+        statusValue.Text =
+            "PAUSED"
 
         statusValue.TextColor3 =
             XP.BlueDark
@@ -1362,7 +2967,8 @@ local function updateStatus()
 
     else
 
-        statusValue.Text = "OFF"
+        statusValue.Text =
+            "OFF"
 
         statusValue.TextColor3 =
             XP.RedDark
@@ -1387,7 +2993,8 @@ local function updateTarget()
     if not targetName
         or targetName == "" then
 
-        targetName = "None"
+        targetName =
+            "None"
     end
 
     targetValue.Text =
@@ -1430,10 +3037,16 @@ local function getErrorStackPosition(
         ERROR_DEFAULT_HEIGHT
 
     local centerX =
-        (viewport.X - width) / 2
+        (
+            viewport.X -
+            width
+        ) / 2
 
     local centerY =
-        (viewport.Y - height) / 2
+        (
+            viewport.Y -
+            height
+        ) / 2
 
     local offsetIndex =
         stackIndex - 1
@@ -1492,7 +3105,9 @@ end
 --// Error Window
 --// =========================================================
 
-local function createErrorWindow()
+local function createErrorWindow(
+    message
+)
 
     local stackIndex =
         #activeErrorWindows + 1
@@ -1520,7 +3135,8 @@ local function createErrorWindow()
     errorWindow.BackgroundColor3 =
         XP.WindowOuter
 
-    errorWindow.BorderSizePixel = 0
+    errorWindow.BorderSizePixel =
+        0
 
     errorWindow.ClipsDescendants =
         true
@@ -1533,7 +3149,7 @@ local function createErrorWindow()
         gui
 
     --=========================================================
-    -- Error sound
+    -- Error Sound
     --=========================================================
 
     local errorSound =
@@ -1545,19 +3161,24 @@ local function createErrorWindow()
     errorSound.SoundId =
         ERROR_SOUND_ID
 
-    errorSound.Volume = 1
+    errorSound.Volume =
+        1
 
-    errorSound.Looped = false
+    errorSound.Looped =
+        false
 
     errorSound.Parent =
         errorWindow
 
     pcall(function()
+
         errorSound:Play()
+
     end)
 
     errorSound.Ended:Connect(
         function()
+
             safeDestroy(
                 errorSound
             )
@@ -1576,7 +3197,7 @@ local function createErrorWindow()
     )
 
     --=========================================================
-    -- Error title bar
+    -- Error Title Bar
     --=========================================================
 
     local errorTitleBar =
@@ -1599,7 +3220,8 @@ local function createErrorWindow()
     errorTitleBar.BackgroundColor3 =
         XP.TitleBlueTop
 
-    errorTitleBar.BorderSizePixel = 0
+    errorTitleBar.BorderSizePixel =
+        0
 
     errorTitleBar.ZIndex =
         errorWindow.ZIndex + 1
@@ -1640,7 +3262,8 @@ local function createErrorWindow()
     titleCover.BackgroundColor3 =
         XP.TitleBlueBottom
 
-    titleCover.BorderSizePixel = 0
+    titleCover.BorderSizePixel =
+        0
 
     titleCover.ZIndex =
         errorTitleBar.ZIndex
@@ -1651,7 +3274,8 @@ local function createErrorWindow()
     local errorTitle =
         Instance.new("TextLabel")
 
-    errorTitle.BackgroundTransparency = 1
+    errorTitle.BackgroundTransparency =
+        1
 
     errorTitle.Position =
         UDim2.fromOffset(
@@ -1673,7 +3297,8 @@ local function createErrorWindow()
     errorTitle.Text =
         "Error"
 
-    errorTitle.TextSize = 12
+    errorTitle.TextSize =
+        12
 
     errorTitle.TextColor3 =
         Color3.fromRGB(
@@ -1695,7 +3320,7 @@ local function createErrorWindow()
         errorTitleBar
 
     --=========================================================
-    -- Error close button
+    -- Error Close
     --=========================================================
 
     local closeButton =
@@ -1729,7 +3354,7 @@ local function createErrorWindow()
     )
 
     --=========================================================
-    -- Error content
+    -- Error Content
     --=========================================================
 
     local errorContent =
@@ -1749,7 +3374,8 @@ local function createErrorWindow()
             34
         )
 
-    errorContent.BackgroundTransparency = 1
+    errorContent.BackgroundTransparency =
+        1
 
     errorContent.ZIndex =
         errorWindow.ZIndex + 1
@@ -1758,13 +3384,14 @@ local function createErrorWindow()
         errorWindow
 
     --=========================================================
-    -- Error icon
+    -- Error Icon
     --=========================================================
 
     local errorIcon =
         Instance.new("ImageLabel")
 
-    errorIcon.BackgroundTransparency = 1
+    errorIcon.BackgroundTransparency =
+        1
 
     errorIcon.Size =
         UDim2.fromOffset(
@@ -1775,7 +3402,7 @@ local function createErrorWindow()
     errorIcon.Position =
         UDim2.fromOffset(
             10,
-            14
+            7
         )
 
     errorIcon.Image =
@@ -1795,7 +3422,8 @@ local function createErrorWindow()
             "UIAspectRatioConstraint"
         )
 
-    iconAspect.AspectRatio = 1
+    iconAspect.AspectRatio =
+        1
 
     iconAspect.DominantAxis =
         Enum.DominantAxis.Width
@@ -1804,18 +3432,19 @@ local function createErrorWindow()
         errorIcon
 
     --=========================================================
-    -- Error message
+    -- Error Message
     --=========================================================
 
     local errorText =
         Instance.new("TextLabel")
 
-    errorText.BackgroundTransparency = 1
+    errorText.BackgroundTransparency =
+        1
 
     errorText.Position =
         UDim2.fromOffset(
             108,
-            18
+            7
         )
 
     errorText.Size =
@@ -1823,24 +3452,30 @@ local function createErrorWindow()
             1,
             -116,
             0,
-            60
+            86
         )
 
     errorText.Font =
-        XP_FONT
+        XP_FONT_UI
 
     errorText.Text =
-        "Equinox Cannon was not found in your inventory."
+        message or
+        "An error occurred."
 
-    errorText.TextSize = 12
+    errorText.TextSize =
+        14
 
     errorText.TextColor3 =
         XP.Text
 
-    errorText.TextWrapped = true
+    errorText.TextWrapped =
+        true
+
+    errorText.TextScaled =
+        false
 
     errorText.TextXAlignment =
-        Enum.TextXAlignment.Left
+        Enum.TextXAlignment.Center
 
     errorText.TextYAlignment =
         Enum.TextYAlignment.Center
@@ -1852,7 +3487,7 @@ local function createErrorWindow()
         errorContent
 
     --=========================================================
-    -- OK button
+    -- OK
     --=========================================================
 
     local okButton =
@@ -1875,7 +3510,8 @@ local function createErrorWindow()
     local okText =
         Instance.new("TextLabel")
 
-    okText.BackgroundTransparency = 1
+    okText.BackgroundTransparency =
+        1
 
     okText.Size =
         UDim2.fromScale(
@@ -1884,12 +3520,13 @@ local function createErrorWindow()
         )
 
     okText.Font =
-        XP_FONT
+        XP_FONT_UI
 
     okText.Text =
         "OK"
 
-    okText.TextSize = 11
+    okText.TextSize =
+        12
 
     okText.TextColor3 =
         XP.Text
@@ -1907,7 +3544,7 @@ local function createErrorWindow()
         okButton
 
     --=========================================================
-    -- Error dragging
+    -- Error Dragging
     --=========================================================
 
     local dragging = false
@@ -1984,7 +3621,7 @@ local function createErrorWindow()
     )
 
     --=========================================================
-    -- Close error
+    -- Error Close
     --=========================================================
 
     local function closeError()
@@ -1998,7 +3635,8 @@ local function createErrorWindow()
             if data.window ==
                 errorWindow then
 
-                currentIndex = index
+                currentIndex =
+                    index
 
                 break
             end
@@ -2079,12 +3717,13 @@ local function createErrorWindow()
     table.insert(
         activeErrorWindows,
         {
-            window = errorWindow
+            window =
+                errorWindow
         }
     )
 
     --=========================================================
-    -- Opening animation
+    -- Existing Opening Animation
     --=========================================================
 
     local targetPosition =
@@ -2122,16 +3761,37 @@ local function createErrorWindow()
     return errorWindow
 end
 
-local function showCannonMissingError()
+--// =========================================================
+--// Error Functions
+--// =========================================================
 
-    if not gui
-        or guiClosed then
+showCannonMissingError =
+    function()
 
-        return
+        if not gui
+            or guiClosed then
+
+            return
+        end
+
+        return createErrorWindow(
+            "Equinox Cannon was not found in your inventory."
+        )
     end
 
-    return createErrorWindow()
-end
+showFurnitureMissingError =
+    function()
+
+        if not gui
+            or guiClosed then
+
+            return
+        end
+
+        return createErrorWindow(
+            "Heavy Egg was not found in your inventory."
+        )
+    end
 
 --// =========================================================
 --// Dragging
@@ -2218,7 +3878,8 @@ local function enableDragging(
                         delta.Y
                 )
 
-            if windowType == "main"
+            if windowType ==
+                "main"
                 and not mainMaximized
                 and not mainMinimized then
 
@@ -2226,11 +3887,21 @@ local function enableDragging(
                     window.Position
             end
 
-            if windowType == "settings"
+            if windowType ==
+                "settings"
                 and not settingsMaximized
                 and not settingsMinimized then
 
                 settingsNormalPosition =
+                    window.Position
+            end
+
+            if windowType ==
+                "furniture"
+                and not furnitureMaximized
+                and not furnitureMinimized then
+
+                furnitureNormalPosition =
                     window.Position
             end
         end
@@ -2260,7 +3931,10 @@ local function enableResizing(
         function()
 
             if not resizing then
-                setResizeCursor(true)
+
+                setResizeCursor(
+                    true
+                )
             end
         end
     )
@@ -2269,7 +3943,10 @@ local function enableResizing(
         function()
 
             if not resizing then
-                setResizeCursor(false)
+
+                setResizeCursor(
+                    false
+                )
             end
         end
     )
@@ -2291,7 +3968,9 @@ local function enableResizing(
 
             resizing = true
 
-            setResizeCursor(true)
+            setResizeCursor(
+                true
+            )
 
             resizeStart =
                 input.Position
@@ -2317,7 +3996,9 @@ local function enableResizing(
 
             resizing = false
 
-            setResizeCursor(false)
+            setResizeCursor(
+                false
+            )
         end
     )
 
@@ -2362,7 +4043,8 @@ local function enableResizing(
                     height
                 )
 
-            if windowType == "main"
+            if windowType ==
+                "main"
                 and not mainMinimized
                 and not mainMaximized then
 
@@ -2379,7 +4061,8 @@ local function enableResizing(
                     mainWindow.Position
             end
 
-            if windowType == "settings"
+            if windowType ==
+                "settings"
                 and not settingsMinimized
                 and not settingsMaximized then
 
@@ -2392,7 +4075,1662 @@ local function enableResizing(
                 settingsNormalPosition =
                     settingsWindow.Position
             end
+
+            if windowType ==
+                "furniture"
+                and not furnitureMinimized
+                and not furnitureMaximized then
+
+                furnitureNormalSize =
+                    UDim2.fromOffset(
+                        width,
+                        height
+                    )
+
+                furnitureNormalPosition =
+                    furnitureWindow.Position
+            end
+
+            if windowType ==
+                "furniture" then
+
+                updateFurnitureScrollbar()
+            end
         end
+    )
+end
+
+--// =========================================================
+--// Furniture Spawner Window
+--// =========================================================
+
+local function createFurnitureWindow(
+    parent
+)
+
+    furnitureWindow =
+        Instance.new("Frame")
+
+    furnitureWindow.Name =
+        "FurnitureSpawnerWindow"
+
+    furnitureWindow.Size =
+        UDim2.fromOffset(
+            FURNITURE_DEFAULT_WIDTH,
+            FURNITURE_DEFAULT_HEIGHT
+        )
+
+    furnitureWindow.Position =
+        UDim2.new(
+            0.5,
+            -FURNITURE_DEFAULT_WIDTH / 2,
+            0.5,
+            -FURNITURE_DEFAULT_HEIGHT / 2
+        )
+
+    furnitureWindow.BackgroundColor3 =
+        XP.WindowOuter
+
+    furnitureWindow.BorderSizePixel =
+        0
+
+    furnitureWindow.Visible =
+        false
+
+    furnitureWindow.ClipsDescendants =
+        true
+
+    furnitureWindow.ZIndex =
+        40
+
+    furnitureWindow.Parent =
+        parent
+
+    addCorner(
+        furnitureWindow,
+        7
+    )
+
+    addStroke(
+        furnitureWindow,
+        XP.TitleBlueDark,
+        2
+    )
+
+    furnitureNormalPosition =
+        furnitureWindow.Position
+
+    furnitureNormalSize =
+        UDim2.fromOffset(
+            FURNITURE_DEFAULT_WIDTH,
+            FURNITURE_DEFAULT_HEIGHT
+        )
+
+    --=========================================================
+    -- Title Bar
+    --=========================================================
+
+    furnitureTitleBar =
+        Instance.new("Frame")
+
+    furnitureTitleBar.Size =
+        UDim2.new(
+            1,
+            -4,
+            0,
+            27
+        )
+
+    furnitureTitleBar.Position =
+        UDim2.fromOffset(
+            2,
+            2
+        )
+
+    furnitureTitleBar.BackgroundColor3 =
+        XP.TitleBlueTop
+
+    furnitureTitleBar.BorderSizePixel =
+        0
+
+    furnitureTitleBar.ZIndex =
+        41
+
+    furnitureTitleBar.Parent =
+        furnitureWindow
+
+    addCorner(
+        furnitureTitleBar,
+        6
+    )
+
+    addGradient(
+        furnitureTitleBar,
+        XP.TitleBlueTop,
+        XP.TitleBlueBottom
+    )
+
+    local titleCover =
+        Instance.new("Frame")
+
+    titleCover.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            7
+        )
+
+    titleCover.Position =
+        UDim2.new(
+            0,
+            0,
+            1,
+            -7
+        )
+
+    titleCover.BackgroundColor3 =
+        XP.TitleBlueBottom
+
+    titleCover.BorderSizePixel =
+        0
+
+    titleCover.ZIndex =
+        41
+
+    titleCover.Parent =
+        furnitureTitleBar
+
+    createXPImage(
+        furnitureTitleBar,
+        UDim2.fromOffset(
+            5,
+            5
+        ),
+        UDim2.fromOffset(
+            17,
+            17
+        ),
+        45
+    )
+
+    local furnitureTitleText =
+        Instance.new("TextLabel")
+
+    furnitureTitleText.BackgroundTransparency =
+        1
+
+    furnitureTitleText.Position =
+        UDim2.fromOffset(
+            27,
+            1
+        )
+
+    furnitureTitleText.Size =
+        UDim2.new(
+            1,
+            -100,
+            1,
+            -2
+        )
+
+    furnitureTitleText.Font =
+        XP_FONT_BOLD
+
+    furnitureTitleText.Text =
+        "Furniture Spawner"
+
+    furnitureTitleText.TextSize =
+        12
+
+    furnitureTitleText.TextColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    furnitureTitleText.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureTitleText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureTitleText.ZIndex =
+        45
+
+    furnitureTitleText.Parent =
+        furnitureTitleBar
+
+    furnitureMinimizeButton =
+        createXPButton(
+            furnitureTitleBar,
+            UDim2.fromOffset(
+                20,
+                19
+            ),
+            UDim2.new(
+                1,
+                -68,
+                0,
+                4
+            ),
+            45,
+            true
+        )
+
+    furnitureMaximizeButton =
+        createXPButton(
+            furnitureTitleBar,
+            UDim2.fromOffset(
+                20,
+                19
+            ),
+            UDim2.new(
+                1,
+                -45,
+                0,
+                4
+            ),
+            45,
+            true
+        )
+
+    furnitureCloseButton =
+        createXPButton(
+            furnitureTitleBar,
+            UDim2.fromOffset(
+                20,
+                19
+            ),
+            UDim2.new(
+                1,
+                -22,
+                0,
+                4
+            ),
+            45,
+            true
+        )
+
+    furnitureMinimizeButton.BackgroundColor3 =
+        Color3.fromRGB(
+            70,
+            135,
+            220
+        )
+
+    furnitureMaximizeButton.BackgroundColor3 =
+        Color3.fromRGB(
+            70,
+            135,
+            220
+        )
+
+    furnitureCloseButton.BackgroundColor3 =
+        Color3.fromRGB(
+            215,
+            70,
+            63
+        )
+
+    createWindowControlIcon(
+        furnitureMinimizeButton,
+        "minimize",
+        47
+    )
+
+    createWindowControlIcon(
+        furnitureMaximizeButton,
+        "maximize",
+        47
+    )
+
+    createWindowControlIcon(
+        furnitureCloseButton,
+        "close",
+        47
+    )
+
+    --=========================================================
+    -- Content
+    --=========================================================
+
+    furnitureContent =
+        Instance.new("Frame")
+
+    furnitureContent.Size =
+        UDim2.new(
+            1,
+            -12,
+            1,
+            -36
+        )
+
+    furnitureContent.Position =
+        UDim2.fromOffset(
+            6,
+            33
+        )
+
+    furnitureContent.BackgroundTransparency =
+        1
+
+    furnitureContent.ZIndex =
+        42
+
+    furnitureContent.Parent =
+        furnitureWindow
+
+    --=========================================================
+    -- Search
+    --=========================================================
+
+    local searchContainer =
+        Instance.new("Frame")
+
+    searchContainer.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            32
+        )
+
+    searchContainer.Position =
+        UDim2.fromOffset(
+            0,
+            0
+        )
+
+    searchContainer.BackgroundColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    searchContainer.BorderSizePixel =
+        1
+
+    searchContainer.BorderColor3 =
+        XP.BorderDark
+
+    searchContainer.ZIndex =
+        43
+
+    searchContainer.Parent =
+        furnitureContent
+
+    addCorner(
+        searchContainer,
+        2
+    )
+
+    local searchLabel =
+        Instance.new("TextLabel")
+
+    searchLabel.BackgroundTransparency =
+        1
+
+    searchLabel.Position =
+        UDim2.fromOffset(
+            7,
+            0
+        )
+
+    searchLabel.Size =
+        UDim2.fromOffset(
+            42,
+            32
+        )
+
+    searchLabel.Font =
+        XP_FONT_UI_BOLD
+
+    searchLabel.Text =
+        "Find:"
+
+    searchLabel.TextSize =
+        12
+
+    searchLabel.TextColor3 =
+        XP.TextSecondary
+
+    searchLabel.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    searchLabel.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    searchLabel.ZIndex =
+        45
+
+    searchLabel.Parent =
+        searchContainer
+
+    furnitureSearchBox =
+        Instance.new("TextBox")
+
+    furnitureSearchBox.BackgroundTransparency =
+        1
+
+    furnitureSearchBox.Position =
+        UDim2.fromOffset(
+            48,
+            0
+        )
+
+    furnitureSearchBox.Size =
+        UDim2.new(
+            1,
+            -55,
+            1,
+            0
+        )
+
+    furnitureSearchBox.ClearTextOnFocus =
+        false
+
+    furnitureSearchBox.Text =
+        ""
+
+    furnitureSearchBox.PlaceholderText =
+        "Search furniture..."
+
+    furnitureSearchBox.PlaceholderColor3 =
+        Color3.fromRGB(
+            130,
+            130,
+            130
+        )
+
+    furnitureSearchBox.TextColor3 =
+        XP.Text
+
+    furnitureSearchBox.Font =
+        XP_FONT_UI
+
+    furnitureSearchBox.TextSize =
+        12
+
+    furnitureSearchBox.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureSearchBox.ZIndex =
+        45
+
+    furnitureSearchBox.Parent =
+        searchContainer
+
+    local searchStroke =
+        addStroke(
+            searchContainer,
+            XP.BorderDark,
+            1
+        )
+
+    furnitureSearchBox.Focused:Connect(
+        function()
+
+            searchStroke.Color =
+                XP.BlueDark
+        end
+    )
+
+    furnitureSearchBox.FocusLost:Connect(
+        function()
+
+            searchStroke.Color =
+                XP.BorderDark
+        end
+    )
+
+    --=========================================================
+    -- Selected
+    --=========================================================
+
+    local selectedContainer =
+        Instance.new("Frame")
+
+    selectedContainer.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            31
+        )
+
+    selectedContainer.Position =
+        UDim2.fromOffset(
+            0,
+            36
+        )
+
+    selectedContainer.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    selectedContainer.BorderSizePixel =
+        1
+
+    selectedContainer.BorderColor3 =
+        XP.BorderDark
+
+    selectedContainer.ZIndex =
+        43
+
+    selectedContainer.Parent =
+        furnitureContent
+
+    local selectedLabel =
+        Instance.new("TextLabel")
+
+    selectedLabel.BackgroundTransparency =
+        1
+
+    selectedLabel.Position =
+        UDim2.fromOffset(
+            7,
+            0
+        )
+
+    selectedLabel.Size =
+        UDim2.fromOffset(
+            62,
+            31
+        )
+
+    selectedLabel.Font =
+        XP_FONT_UI_BOLD
+
+    selectedLabel.Text =
+        "Selected:"
+
+    selectedLabel.TextSize =
+        12
+
+    selectedLabel.TextColor3 =
+        XP.TextSecondary
+
+    selectedLabel.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    selectedLabel.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    selectedLabel.ZIndex =
+        45
+
+    selectedLabel.Parent =
+        selectedContainer
+
+    furnitureSelectedValue =
+        Instance.new("TextLabel")
+
+    furnitureSelectedValue.BackgroundTransparency =
+        1
+
+    furnitureSelectedValue.Position =
+        UDim2.fromOffset(
+            70,
+            0
+        )
+
+    furnitureSelectedValue.Size =
+        UDim2.new(
+            1,
+            -78,
+            1,
+            0
+        )
+
+    furnitureSelectedValue.Font =
+        XP_FONT_UI_BOLD
+
+    furnitureSelectedValue.Text =
+        "Select a model → click in game"
+
+    furnitureSelectedValue.TextSize =
+        12
+
+    furnitureSelectedValue.TextColor3 =
+        XP.TextSecondary
+
+    furnitureSelectedValue.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureSelectedValue.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureSelectedValue.TextTruncate =
+        Enum.TextTruncate.AtEnd
+
+    furnitureSelectedValue.ZIndex =
+        45
+
+    furnitureSelectedValue.Parent =
+        selectedContainer
+
+    --=========================================================
+    -- Model List
+    --=========================================================
+
+    furnitureScroll =
+        Instance.new("ScrollingFrame")
+
+    furnitureScroll.Name =
+        "FurnitureModelList"
+
+    furnitureScroll.Size =
+        UDim2.new(
+            1,
+            -17,
+            1,
+            -155
+        )
+
+    furnitureScroll.Position =
+        UDim2.fromOffset(
+            0,
+            71
+        )
+
+    furnitureScroll.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    furnitureScroll.BorderSizePixel =
+        1
+
+    furnitureScroll.BorderColor3 =
+        XP.BorderDark
+
+    furnitureScroll.ScrollBarThickness =
+        0
+
+    furnitureScroll.ScrollBarImageTransparency =
+        1
+
+    furnitureScroll.AutomaticCanvasSize =
+        Enum.AutomaticSize.Y
+
+    furnitureScroll.CanvasSize =
+        UDim2.fromOffset(
+            0,
+            0
+        )
+
+    furnitureScroll.ScrollingDirection =
+        Enum.ScrollingDirection.Y
+
+    furnitureScroll.ZIndex =
+        43
+
+    furnitureScroll.Parent =
+        furnitureContent
+
+    addCorner(
+        furnitureScroll,
+        2
+    )
+
+    local listPadding =
+        Instance.new(
+            "UIPadding"
+        )
+
+    listPadding.PaddingTop =
+        UDim.new(
+            0,
+            5
+        )
+
+    listPadding.PaddingBottom =
+        UDim.new(
+            0,
+            5
+        )
+
+    listPadding.PaddingLeft =
+        UDim.new(
+            0,
+            5
+        )
+
+    listPadding.PaddingRight =
+        UDim.new(
+            0,
+            5
+        )
+
+    listPadding.Parent =
+        furnitureScroll
+
+    local listLayout =
+        Instance.new(
+            "UIListLayout"
+        )
+
+    listLayout.Padding =
+        UDim.new(
+            0,
+            4
+        )
+
+    listLayout.SortOrder =
+        Enum.SortOrder.LayoutOrder
+
+    listLayout.Parent =
+        furnitureScroll
+
+    --=========================================================
+    -- XP Scrollbar
+    --=========================================================
+
+    furnitureScrollbar =
+        Instance.new("Frame")
+
+    furnitureScrollbar.Name =
+        "XPScrollbar"
+
+    furnitureScrollbar.Size =
+        UDim2.new(
+            0,
+            16,
+            1,
+            -155
+        )
+
+    furnitureScrollbar.Position =
+        UDim2.new(
+            1,
+            -16,
+            0,
+            71
+        )
+
+    furnitureScrollbar.BackgroundColor3 =
+        XP.ScrollTrack
+
+    furnitureScrollbar.BorderSizePixel =
+        1
+
+    furnitureScrollbar.BorderColor3 =
+        XP.ScrollBorder
+
+    furnitureScrollbar.ZIndex =
+        44
+
+    furnitureScrollbar.Parent =
+        furnitureContent
+
+    --=========================================================
+    -- Up Button
+    --=========================================================
+
+    furnitureScrollUp =
+        Instance.new("TextButton")
+
+    furnitureScrollUp.Size =
+        UDim2.new(
+            1,
+            -2,
+            0,
+            15
+        )
+
+    furnitureScrollUp.Position =
+        UDim2.fromOffset(
+            1,
+            1
+        )
+
+    furnitureScrollUp.BackgroundColor3 =
+        XP.ScrollButtonBottom
+
+    furnitureScrollUp.BorderSizePixel =
+        1
+
+    furnitureScrollUp.BorderColor3 =
+        XP.ScrollBorder
+
+    furnitureScrollUp.Text =
+        ""
+
+    furnitureScrollUp.AutoButtonColor =
+        false
+
+    furnitureScrollUp.ZIndex =
+        46
+
+    furnitureScrollUp.Parent =
+        furnitureScrollbar
+
+    addGradient(
+        furnitureScrollUp,
+        XP.ScrollButtonTop,
+        XP.ScrollButtonBottom
+    )
+
+    local upArrow =
+        Instance.new("TextLabel")
+
+    upArrow.BackgroundTransparency =
+        1
+
+    upArrow.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    upArrow.Font =
+        XP_FONT_UI_BOLD
+
+    upArrow.Text =
+        "▲"
+
+    upArrow.TextSize =
+        8
+
+    upArrow.TextColor3 =
+        XP.ScrollArrow
+
+    upArrow.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    upArrow.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    upArrow.ZIndex =
+        48
+
+    upArrow.Parent =
+        furnitureScrollUp
+
+    --=========================================================
+    -- Down Button
+    --=========================================================
+
+    furnitureScrollDown =
+        Instance.new("TextButton")
+
+    furnitureScrollDown.Size =
+        UDim2.new(
+            1,
+            -2,
+            0,
+            15
+        )
+
+    furnitureScrollDown.Position =
+        UDim2.new(
+            0,
+            1,
+            1,
+            -16
+        )
+
+    furnitureScrollDown.BackgroundColor3 =
+        XP.ScrollButtonBottom
+
+    furnitureScrollDown.BorderSizePixel =
+        1
+
+    furnitureScrollDown.BorderColor3 =
+        XP.ScrollBorder
+
+    furnitureScrollDown.Text =
+        ""
+
+    furnitureScrollDown.AutoButtonColor =
+        false
+
+    furnitureScrollDown.ZIndex =
+        46
+
+    furnitureScrollDown.Parent =
+        furnitureScrollbar
+
+    addGradient(
+        furnitureScrollDown,
+        XP.ScrollButtonTop,
+        XP.ScrollButtonBottom
+    )
+
+    local downArrow =
+        Instance.new("TextLabel")
+
+    downArrow.BackgroundTransparency =
+        1
+
+    downArrow.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    downArrow.Font =
+        XP_FONT_UI_BOLD
+
+    downArrow.Text =
+        "▼"
+
+    downArrow.TextSize =
+        8
+
+    downArrow.TextColor3 =
+        XP.ScrollArrow
+
+    downArrow.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    downArrow.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    downArrow.ZIndex =
+        48
+
+    downArrow.Parent =
+        furnitureScrollDown
+
+    --=========================================================
+    -- Track
+    --=========================================================
+
+    furnitureScrollTrack =
+        Instance.new("Frame")
+
+    furnitureScrollTrack.Size =
+        UDim2.new(
+            1,
+            -2,
+            1,
+            -32
+        )
+
+    furnitureScrollTrack.Position =
+        UDim2.fromOffset(
+            1,
+            16
+        )
+
+    furnitureScrollTrack.BackgroundColor3 =
+        Color3.fromRGB(
+            250,
+            250,
+            250
+        )
+
+    furnitureScrollTrack.BorderSizePixel =
+        0
+
+    furnitureScrollTrack.ZIndex =
+        45
+
+    furnitureScrollTrack.Parent =
+        furnitureScrollbar
+
+    --=========================================================
+    -- Thumb
+    --=========================================================
+
+    furnitureScrollThumb =
+        Instance.new("TextButton")
+
+    furnitureScrollThumb.Size =
+        UDim2.new(
+            1,
+            -2,
+            0,
+            35
+        )
+
+    furnitureScrollThumb.Position =
+        UDim2.fromOffset(
+            1,
+            1
+        )
+
+    furnitureScrollThumb.BackgroundColor3 =
+        XP.ScrollThumbBottom
+
+    furnitureScrollThumb.BorderSizePixel =
+        1
+
+    furnitureScrollThumb.BorderColor3 =
+        XP.ScrollThumbBorder
+
+    furnitureScrollThumb.Text =
+        ""
+
+    furnitureScrollThumb.AutoButtonColor =
+        false
+
+    furnitureScrollThumb.ZIndex =
+        46
+
+    furnitureScrollThumb.Parent =
+        furnitureScrollTrack
+
+    addGradient(
+        furnitureScrollThumb,
+        XP.ScrollThumbTop,
+        XP.ScrollThumbBottom
+    )
+
+    local thumbHighlight =
+        Instance.new("Frame")
+
+    thumbHighlight.Size =
+        UDim2.new(
+            1,
+            -2,
+            0,
+            1
+        )
+
+    thumbHighlight.Position =
+        UDim2.fromOffset(
+            1,
+            1
+        )
+
+    thumbHighlight.BackgroundColor3 =
+        XP.ScrollThumbHighlight
+
+    thumbHighlight.BackgroundTransparency =
+        0.2
+
+    thumbHighlight.BorderSizePixel =
+        0
+
+    thumbHighlight.ZIndex =
+        47
+
+    thumbHighlight.Parent =
+        furnitureScrollThumb
+
+    --=========================================================
+    -- Thumb Grip
+    --=========================================================
+
+    local gripContainer =
+        Instance.new("Frame")
+
+    gripContainer.Size =
+        UDim2.fromOffset(
+            8,
+            7
+        )
+
+    gripContainer.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
+
+    gripContainer.Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        )
+
+    gripContainer.BackgroundTransparency =
+        1
+
+    gripContainer.BorderSizePixel =
+        0
+
+    gripContainer.ZIndex =
+        48
+
+    gripContainer.Parent =
+        furnitureScrollThumb
+
+    for i = 0, 2 do
+
+        local gripLine =
+            Instance.new("Frame")
+
+        gripLine.Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                1
+            )
+
+        gripLine.Position =
+            UDim2.fromOffset(
+                0,
+                i * 3
+            )
+
+        gripLine.BackgroundColor3 =
+            XP.ScrollGrip
+
+        gripLine.BorderSizePixel =
+            0
+
+        gripLine.ZIndex =
+            49
+
+        gripLine.Parent =
+            gripContainer
+    end
+
+    --=========================================================
+    -- Scrollbar Interaction
+    --=========================================================
+
+    furnitureScrollUp.MouseButton1Click:Connect(
+        function()
+
+            furnitureScrollBy(
+                -35
+            )
+        end
+    )
+
+    furnitureScrollDown.MouseButton1Click:Connect(
+        function()
+
+            furnitureScrollBy(
+                35
+            )
+        end
+    )
+
+    furnitureScrollThumb.InputBegan:Connect(
+        function(input)
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            furnitureState.scrollbarDragging =
+                true
+
+            furnitureState.scrollbarDragStart =
+                input.Position
+
+            furnitureState.scrollbarStartCanvasY =
+                furnitureScroll.CanvasPosition.Y
+        end
+    )
+
+    furnitureScrollThumb.InputEnded:Connect(
+        function(input)
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            furnitureState.scrollbarDragging =
+                false
+        end
+    )
+
+    UserInputService.InputChanged:Connect(
+        function(input)
+
+            if not furnitureState.scrollbarDragging then
+                return
+            end
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseMovement
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            local delta =
+                input.Position -
+                furnitureState.scrollbarDragStart
+
+            local trackHeight =
+                furnitureScrollTrack.AbsoluteSize.Y
+
+            local thumbHeight =
+                furnitureScrollThumb.AbsoluteSize.Y
+
+            local maxThumbPosition =
+                math.max(
+                    1,
+                    trackHeight -
+                    thumbHeight
+                )
+
+            local maxCanvas =
+                math.max(
+                    0,
+                    furnitureScroll.AbsoluteCanvasSize.Y -
+                    furnitureScroll.AbsoluteSize.Y
+                )
+
+            local canvasDelta =
+                (
+                    delta.Y /
+                    maxThumbPosition
+                ) *
+                maxCanvas
+
+            furnitureScroll.CanvasPosition =
+                Vector2.new(
+                    0,
+                    math.clamp(
+                        furnitureState.scrollbarStartCanvasY +
+                            canvasDelta,
+                        0,
+                        maxCanvas
+                    )
+                )
+
+            updateFurnitureScrollbar()
+        end
+    )
+
+    furnitureScroll:GetPropertyChangedSignal(
+        "CanvasPosition"
+    ):Connect(
+        function()
+
+            updateFurnitureScrollbar()
+        end
+    )
+
+    furnitureScroll:GetPropertyChangedSignal(
+        "AbsoluteCanvasSize"
+    ):Connect(
+        function()
+
+            updateFurnitureScrollbar()
+        end
+    )
+
+    furnitureScroll:GetPropertyChangedSignal(
+        "AbsoluteSize"
+    ):Connect(
+        function()
+
+            updateFurnitureScrollbar()
+        end
+    )
+
+    --=========================================================
+    -- Refresh Button
+    --=========================================================
+
+    furnitureRefreshButton =
+        createXPButton(
+            furnitureContent,
+            UDim2.new(
+                1,
+                0,
+                0,
+                31
+            ),
+            UDim2.new(
+                0,
+                0,
+                1,
+                -76
+            ),
+            43,
+            false
+        )
+
+    local refreshText =
+        Instance.new("TextLabel")
+
+    refreshText.BackgroundTransparency =
+        1
+
+    refreshText.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    refreshText.Font =
+        XP_FONT_UI_BOLD
+
+    refreshText.Text =
+        "Refresh Models"
+
+    refreshText.TextSize =
+        12
+
+    refreshText.TextColor3 =
+        XP.Text
+
+    refreshText.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    refreshText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    refreshText.ZIndex =
+        46
+
+    refreshText.Parent =
+        furnitureRefreshButton
+
+    --=========================================================
+    -- Resize Handle
+    --=========================================================
+
+    furnitureResizeHandle =
+        Instance.new("Frame")
+
+    furnitureResizeHandle.Size =
+        UDim2.fromOffset(
+            16,
+            16
+        )
+
+    furnitureResizeHandle.AnchorPoint =
+        Vector2.new(
+            1,
+            1
+        )
+
+    furnitureResizeHandle.Position =
+        UDim2.new(
+            1,
+            -3,
+            1,
+            -3
+        )
+
+    furnitureResizeHandle.BackgroundTransparency =
+        1
+
+    furnitureResizeHandle.BorderSizePixel =
+        0
+
+    furnitureResizeHandle.ZIndex =
+        60
+
+    furnitureResizeHandle.Parent =
+        furnitureWindow
+
+    --=========================================================
+    -- Search Refresh
+    --=========================================================
+
+    furnitureSearchBox:GetPropertyChangedSignal(
+        "Text"
+    ):Connect(
+        function()
+
+            if furnitureState.searchDebounce then
+                return
+            end
+
+            furnitureState.searchDebounce =
+                true
+
+            task.delay(
+                0.08,
+                function()
+
+                    furnitureState.searchDebounce =
+                        false
+
+                    refreshFurnitureModels()
+                end
+            )
+        end
+    )
+
+    furnitureRefreshButton.MouseButton1Click:Connect(
+        function()
+
+            if furnitureState.refreshing then
+                return
+            end
+
+            setFurnitureStatus(
+                "Refreshing models...",
+                "active"
+            )
+
+            refreshFurnitureModels()
+        end
+    )
+
+    enableDragging(
+        furnitureWindow,
+        furnitureTitleBar,
+        "furniture"
+    )
+
+    enableResizing(
+        furnitureWindow,
+        furnitureResizeHandle,
+        FURNITURE_MIN_WIDTH,
+        FURNITURE_MIN_HEIGHT,
+        FURNITURE_MAX_WIDTH,
+        FURNITURE_MAX_HEIGHT,
+        "furniture"
+    )
+
+    --=========================================================
+    -- Furniture Minimize
+    --=========================================================
+
+    furnitureMinimizeButton.MouseButton1Click:Connect(
+        function()
+
+            if furnitureMinimized then
+
+                furnitureMinimized =
+                    false
+
+                furnitureContent.Visible =
+                    true
+
+                furnitureResizeHandle.Visible =
+                    true
+
+                tween(
+                    furnitureWindow,
+                    {
+                        Size =
+                            furnitureNormalSize
+                    },
+                    0.36,
+                    Enum.EasingStyle.Quad
+                )
+
+            else
+
+                furnitureNormalSize =
+                    UDim2.fromOffset(
+                        furnitureWindow.AbsoluteSize.X,
+                        furnitureWindow.AbsoluteSize.Y
+                    )
+
+                furnitureMinimized =
+                    true
+
+                furnitureContent.Visible =
+                    false
+
+                furnitureResizeHandle.Visible =
+                    false
+
+                tween(
+                    furnitureWindow,
+                    {
+                        Size =
+                            UDim2.fromOffset(
+                                furnitureNormalSize.X.Offset,
+                                MAIN_MINIMIZED_HEIGHT
+                            )
+                    },
+                    0.36,
+                    Enum.EasingStyle.Quad,
+                    Enum.EasingDirection.InOut
+                )
+            end
+        end
+    )
+
+    --=========================================================
+    -- Furniture Maximize
+    --=========================================================
+
+    furnitureMaximizeButton.MouseButton1Click:Connect(
+        function()
+
+            if furnitureMinimized then
+                return
+            end
+
+            if not furnitureMaximized then
+
+                furnitureNormalPosition =
+                    furnitureWindow.Position
+
+                furnitureNormalSize =
+                    UDim2.fromOffset(
+                        furnitureWindow.AbsoluteSize.X,
+                        furnitureWindow.AbsoluteSize.Y
+                    )
+
+                local camera =
+                    workspace.CurrentCamera
+
+                local viewport =
+                    camera
+                    and camera.ViewportSize
+                    or Vector2.new(
+                        1920,
+                        1080
+                    )
+
+                furnitureMaximized =
+                    true
+
+                tween(
+                    furnitureWindow,
+                    {
+                        Position =
+                            UDim2.fromOffset(
+                                10,
+                                10
+                            ),
+
+                        Size =
+                            UDim2.fromOffset(
+                                math.max(
+                                    FURNITURE_MIN_WIDTH,
+                                    viewport.X - 20
+                                ),
+
+                                math.max(
+                                    FURNITURE_MIN_HEIGHT,
+                                    viewport.Y - 20
+                                )
+                            )
+                    },
+                    0.36,
+                    Enum.EasingStyle.Quad
+                )
+
+            else
+
+                furnitureMaximized =
+                    false
+
+                tween(
+                    furnitureWindow,
+                    {
+                        Position =
+                            furnitureNormalPosition,
+
+                        Size =
+                            furnitureNormalSize
+                    },
+                    0.36,
+                    Enum.EasingStyle.Quad
+                )
+            end
+        end
+    )
+
+    --=========================================================
+    -- Furniture Close
+    --=========================================================
+
+    furnitureCloseButton.MouseButton1Click:Connect(
+        function()
+
+            furnitureState.waitingForClick =
+                false
+
+            tween(
+                furnitureWindow,
+                {
+                    Size =
+                        UDim2.fromOffset(
+                            0,
+                            0
+                        )
+                },
+                0.24,
+                Enum.EasingStyle.Back,
+                Enum.EasingDirection.In
+            )
+
+            task.delay(
+                0.27,
+                function()
+
+                    if furnitureWindow then
+
+                        furnitureWindow.Visible =
+                            false
+
+                        furnitureWindow.Position =
+                            furnitureNormalPosition
+
+                        furnitureWindow.Size =
+                            furnitureNormalSize
+
+                        furnitureContent.Visible =
+                            true
+
+                        furnitureResizeHandle.Visible =
+                            true
+
+                        furnitureMinimized =
+                            false
+
+                        furnitureMaximized =
+                            false
+                    end
+                end
+            )
+        end
+    )
+
+    refreshFurnitureModels()
+
+    task.defer(
+        updateFurnitureScrollbar
     )
 end
 
@@ -2400,7 +5738,9 @@ end
 --// Settings Window
 --// =========================================================
 
-local function createSettingsWindow(parent)
+local function createSettingsWindow(
+    parent
+)
 
     settingsWindow =
         Instance.new("Frame")
@@ -2425,14 +5765,17 @@ local function createSettingsWindow(parent)
     settingsWindow.BackgroundColor3 =
         XP.WindowOuter
 
-    settingsWindow.BorderSizePixel = 0
+    settingsWindow.BorderSizePixel =
+        0
 
-    settingsWindow.Visible = false
+    settingsWindow.Visible =
+        false
 
     settingsWindow.ClipsDescendants =
         true
 
-    settingsWindow.ZIndex = 50
+    settingsWindow.ZIndex =
+        50
 
     settingsWindow.Parent =
         parent
@@ -2458,7 +5801,7 @@ local function createSettingsWindow(parent)
         )
 
     --=========================================================
-    -- Settings Title Bar
+    -- Title Bar
     --=========================================================
 
     settingsTitleBar =
@@ -2481,9 +5824,11 @@ local function createSettingsWindow(parent)
     settingsTitleBar.BackgroundColor3 =
         XP.TitleBlueTop
 
-    settingsTitleBar.BorderSizePixel = 0
+    settingsTitleBar.BorderSizePixel =
+        0
 
-    settingsTitleBar.ZIndex = 51
+    settingsTitleBar.ZIndex =
+        51
 
     settingsTitleBar.Parent =
         settingsWindow
@@ -2521,9 +5866,11 @@ local function createSettingsWindow(parent)
     titleCover.BackgroundColor3 =
         XP.TitleBlueBottom
 
-    titleCover.BorderSizePixel = 0
+    titleCover.BorderSizePixel =
+        0
 
-    titleCover.ZIndex = 51
+    titleCover.ZIndex =
+        51
 
     titleCover.Parent =
         settingsTitleBar
@@ -2544,7 +5891,8 @@ local function createSettingsWindow(parent)
     local settingsTitleText =
         Instance.new("TextLabel")
 
-    settingsTitleText.BackgroundTransparency = 1
+    settingsTitleText.BackgroundTransparency =
+        1
 
     settingsTitleText.Position =
         UDim2.fromOffset(
@@ -2566,7 +5914,8 @@ local function createSettingsWindow(parent)
     settingsTitleText.Text =
         "SexyBlaster9000 Settings"
 
-    settingsTitleText.TextSize = 12
+    settingsTitleText.TextSize =
+        12
 
     settingsTitleText.TextColor3 =
         Color3.fromRGB(
@@ -2581,14 +5930,11 @@ local function createSettingsWindow(parent)
     settingsTitleText.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    settingsTitleText.ZIndex = 55
+    settingsTitleText.ZIndex =
+        55
 
     settingsTitleText.Parent =
         settingsTitleBar
-
-    --=========================================================
-    -- Settings Controls
-    --=========================================================
 
     settingsMinimizeButton =
         createXPButton(
@@ -2662,7 +6008,6 @@ local function createSettingsWindow(parent)
             63
         )
 
-    -- Same icons as main window.
     createWindowControlIcon(
         settingsMinimizeButton,
         "minimize",
@@ -2682,7 +6027,7 @@ local function createSettingsWindow(parent)
     )
 
     --=========================================================
-    -- Settings Content
+    -- Content
     --=========================================================
 
     settingsContent =
@@ -2702,12 +6047,18 @@ local function createSettingsWindow(parent)
             33
         )
 
-    settingsContent.BackgroundTransparency = 1
+    settingsContent.BackgroundTransparency =
+        1
 
-    settingsContent.ZIndex = 52
+    settingsContent.ZIndex =
+        52
 
     settingsContent.Parent =
         settingsWindow
+
+    --=========================================================
+    -- Info
+    --=========================================================
 
     local infoBox =
         Instance.new("Frame")
@@ -2727,18 +6078,16 @@ local function createSettingsWindow(parent)
         )
 
     infoBox.BackgroundColor3 =
-        Color3.fromRGB(
-            247,
-            245,
-            237
-        )
+        XP.WindowInner
 
-    infoBox.BorderSizePixel = 1
+    infoBox.BorderSizePixel =
+        1
 
     infoBox.BorderColor3 =
         XP.BorderDark
 
-    infoBox.ZIndex = 53
+    infoBox.ZIndex =
+        53
 
     infoBox.Parent =
         settingsContent
@@ -2746,7 +6095,8 @@ local function createSettingsWindow(parent)
     local infoText =
         Instance.new("TextLabel")
 
-    infoText.BackgroundTransparency = 1
+    infoText.BackgroundTransparency =
+        1
 
     infoText.Position =
         UDim2.fromOffset(
@@ -2763,12 +6113,13 @@ local function createSettingsWindow(parent)
         )
 
     infoText.Font =
-        XP_FONT
+        XP_FONT_UI
 
     infoText.Text =
         "Configure SexyBlaster9000 options"
 
-    infoText.TextSize = 12
+    infoText.TextSize =
+        12
 
     infoText.TextColor3 =
         XP.Text
@@ -2779,7 +6130,8 @@ local function createSettingsWindow(parent)
     infoText.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    infoText.ZIndex = 54
+    infoText.ZIndex =
+        54
 
     infoText.Parent =
         infoBox
@@ -2827,12 +6179,14 @@ local function createSettingsWindow(parent)
             255
         )
 
-    checkbox.BorderSizePixel = 1
+    checkbox.BorderSizePixel =
+        1
 
     checkbox.BorderColor3 =
         XP.BorderDark
 
-    checkbox.ZIndex = 54
+    checkbox.ZIndex =
+        54
 
     checkbox.Parent =
         autoEquipButton
@@ -2840,7 +6194,8 @@ local function createSettingsWindow(parent)
     autoEquipCheck =
         Instance.new("TextLabel")
 
-    autoEquipCheck.BackgroundTransparency = 1
+    autoEquipCheck.BackgroundTransparency =
+        1
 
     autoEquipCheck.Size =
         UDim2.fromScale(
@@ -2849,11 +6204,13 @@ local function createSettingsWindow(parent)
         )
 
     autoEquipCheck.Font =
-        XP_FONT_BOLD
+        XP_FONT_UI_BOLD
 
-    autoEquipCheck.Text = "✓"
+    autoEquipCheck.Text =
+        "✓"
 
-    autoEquipCheck.TextSize = 13
+    autoEquipCheck.TextSize =
+        13
 
     autoEquipCheck.TextColor3 =
         XP.GreenDark
@@ -2864,7 +6221,8 @@ local function createSettingsWindow(parent)
     autoEquipCheck.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    autoEquipCheck.ZIndex = 55
+    autoEquipCheck.ZIndex =
+        55
 
     autoEquipCheck.Parent =
         checkbox
@@ -2872,7 +6230,8 @@ local function createSettingsWindow(parent)
     local autoText =
         Instance.new("TextLabel")
 
-    autoText.BackgroundTransparency = 1
+    autoText.BackgroundTransparency =
+        1
 
     autoText.Position =
         UDim2.fromOffset(
@@ -2889,12 +6248,13 @@ local function createSettingsWindow(parent)
         )
 
     autoText.Font =
-        XP_FONT_BOLD
+        XP_FONT_UI_BOLD
 
     autoText.Text =
         "Auto-Equip Cannon"
 
-    autoText.TextSize = 11
+    autoText.TextSize =
+        12
 
     autoText.TextColor3 =
         XP.Text
@@ -2902,7 +6262,8 @@ local function createSettingsWindow(parent)
     autoText.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    autoText.ZIndex = 54
+    autoText.ZIndex =
+        54
 
     autoText.Parent =
         autoEquipButton
@@ -2910,7 +6271,8 @@ local function createSettingsWindow(parent)
     local autoHint =
         Instance.new("TextLabel")
 
-    autoHint.BackgroundTransparency = 1
+    autoHint.BackgroundTransparency =
+        1
 
     autoHint.Position =
         UDim2.fromOffset(
@@ -2927,12 +6289,13 @@ local function createSettingsWindow(parent)
         )
 
     autoHint.Font =
-        XP_FONT
+        XP_FONT_UI
 
     autoHint.Text =
         "Automatically equip the cannon"
 
-    autoHint.TextSize = 9
+    autoHint.TextSize =
+        10
 
     autoHint.TextColor3 =
         XP.TextSecondary
@@ -2940,7 +6303,8 @@ local function createSettingsWindow(parent)
     autoHint.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    autoHint.ZIndex = 54
+    autoHint.ZIndex =
+        54
 
     autoHint.Parent =
         autoEquipButton
@@ -2960,7 +6324,8 @@ local function createSettingsWindow(parent)
 
             if not hasEquinoxCannon() then
 
-                State.autoEquip = false
+                State.autoEquip =
+                    false
 
                 updateAutoEquip()
 
@@ -2969,9 +6334,466 @@ local function createSettingsWindow(parent)
                 return
             end
 
-            State.autoEquip = true
+            State.autoEquip =
+                true
 
             updateAutoEquip()
+        end
+    )
+
+    --=========================================================
+    -- Furniture Type Setting
+    --=========================================================
+
+    local furnitureTypeLabel =
+        Instance.new("TextLabel")
+
+    furnitureTypeLabel.BackgroundTransparency =
+        1
+
+    furnitureTypeLabel.Position =
+        UDim2.fromOffset(
+            8,
+            86
+        )
+
+    furnitureTypeLabel.Size =
+        UDim2.new(
+            1,
+            -16,
+            0,
+            18
+        )
+
+    furnitureTypeLabel.Font =
+        XP_FONT_UI_BOLD
+
+    furnitureTypeLabel.Text =
+        "Furniture Type"
+
+    furnitureTypeLabel.TextSize =
+        12
+
+    furnitureTypeLabel.TextColor3 =
+        XP.Text
+
+    furnitureTypeLabel.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureTypeLabel.ZIndex =
+        56
+
+    furnitureTypeLabel.Parent =
+        settingsContent
+
+    furnitureTypeButton =
+        Instance.new("TextButton")
+
+    furnitureTypeButton.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            36
+        )
+
+    furnitureTypeButton.Position =
+        UDim2.fromOffset(
+            0,
+            107
+        )
+
+    furnitureTypeButton.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    furnitureTypeButton.BorderSizePixel =
+        0
+
+    furnitureTypeButton.Text =
+        ""
+
+    furnitureTypeButton.AutoButtonColor =
+        false
+
+    furnitureTypeButton.ZIndex =
+        56
+
+    furnitureTypeButton.Parent =
+        settingsContent
+
+    addStroke(
+        furnitureTypeButton,
+        XP.BorderDark,
+        1
+    )
+
+    addGradient(
+        furnitureTypeButton,
+        XP.ButtonTop,
+        XP.ButtonBottom
+    )
+
+    local furnitureTypeTitle =
+        Instance.new("TextLabel")
+
+    furnitureTypeTitle.BackgroundTransparency =
+        1
+
+    furnitureTypeTitle.Position =
+        UDim2.fromOffset(
+            9,
+            0
+        )
+
+    furnitureTypeTitle.Size =
+        UDim2.new(
+            1,
+            -45,
+            1,
+            0
+        )
+
+    furnitureTypeTitle.Font =
+        XP_FONT_UI
+
+    furnitureTypeTitle.Text =
+        "Show:"
+
+    furnitureTypeTitle.TextSize =
+        11
+
+    furnitureTypeTitle.TextColor3 =
+        XP.TextSecondary
+
+    furnitureTypeTitle.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureTypeTitle.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureTypeTitle.ZIndex =
+        58
+
+    furnitureTypeTitle.Parent =
+        furnitureTypeButton
+
+    furnitureTypeValue =
+        Instance.new("TextLabel")
+
+    furnitureTypeValue.BackgroundTransparency =
+        1
+
+    furnitureTypeValue.Position =
+        UDim2.fromOffset(
+            48,
+            0
+        )
+
+    furnitureTypeValue.Size =
+        UDim2.new(
+            1,
+            -80,
+            1,
+            0
+        )
+
+    furnitureTypeValue.Font =
+        XP_FONT_UI_BOLD
+
+    furnitureTypeValue.Text =
+        selectedFurnitureType
+
+    furnitureTypeValue.TextSize =
+        12
+
+    furnitureTypeValue.TextColor3 =
+        XP.Text
+
+    furnitureTypeValue.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureTypeValue.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureTypeValue.ZIndex =
+        58
+
+    furnitureTypeValue.Parent =
+        furnitureTypeButton
+
+    local dropdownArrow =
+        Instance.new("TextLabel")
+
+    dropdownArrow.BackgroundTransparency =
+        1
+
+    dropdownArrow.Size =
+        UDim2.fromOffset(
+            24,
+            36
+        )
+
+    dropdownArrow.Position =
+        UDim2.new(
+            1,
+            -28,
+            0,
+            0
+        )
+
+    dropdownArrow.Font =
+        XP_FONT_UI_BOLD
+
+    dropdownArrow.Text =
+        "▼"
+
+    dropdownArrow.TextSize =
+        9
+
+    dropdownArrow.TextColor3 =
+        XP.BlueDark
+
+    dropdownArrow.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    dropdownArrow.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    dropdownArrow.ZIndex =
+        58
+
+    dropdownArrow.Parent =
+        furnitureTypeButton
+
+    furnitureTypeDropdown =
+        Instance.new("Frame")
+
+    furnitureTypeDropdown.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            150
+        )
+
+    furnitureTypeDropdown.Position =
+        UDim2.fromOffset(
+            0,
+            144
+        )
+
+    furnitureTypeDropdown.BackgroundColor3 =
+        XP.WindowInner
+
+    furnitureTypeDropdown.BorderSizePixel =
+        1
+
+    furnitureTypeDropdown.BorderColor3 =
+        XP.BorderDark
+
+    furnitureTypeDropdown.Visible =
+        false
+
+    furnitureTypeDropdown.ZIndex =
+        70
+
+    furnitureTypeDropdown.Parent =
+        settingsContent
+
+    furnitureTypeOptionsFrame =
+        Instance.new("Frame")
+
+    furnitureTypeOptionsFrame.Size =
+        UDim2.new(
+            1,
+            -6,
+            1,
+            -6
+        )
+
+    furnitureTypeOptionsFrame.Position =
+        UDim2.fromOffset(
+            3,
+            3
+        )
+
+    furnitureTypeOptionsFrame.BackgroundTransparency =
+        1
+
+    furnitureTypeOptionsFrame.ZIndex =
+        71
+
+    furnitureTypeOptionsFrame.Parent =
+        furnitureTypeDropdown
+
+    local typeLayout =
+        Instance.new(
+            "UIListLayout"
+        )
+
+    typeLayout.Padding =
+        UDim.new(
+            0,
+            2
+        )
+
+    typeLayout.SortOrder =
+        Enum.SortOrder.LayoutOrder
+
+    typeLayout.Parent =
+        furnitureTypeOptionsFrame
+
+    local function updateFurnitureTypeDisplay()
+
+        furnitureTypeValue.Text =
+            selectedFurnitureType
+    end
+
+    for index, option in ipairs(
+        FURNITURE_TYPE_OPTIONS
+    ) do
+
+        local optionButton =
+            Instance.new("TextButton")
+
+        optionButton.Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                33
+            )
+
+        optionButton.BackgroundColor3 =
+            XP.ButtonMiddle
+
+        optionButton.BorderSizePixel =
+            0
+
+        optionButton.Text =
+            option
+
+        optionButton.TextColor3 =
+            XP.Text
+
+        optionButton.Font =
+            XP_FONT_UI
+
+        optionButton.TextSize =
+            12
+
+        optionButton.TextXAlignment =
+            Enum.TextXAlignment.Left
+
+        optionButton.TextYAlignment =
+            Enum.TextYAlignment.Center
+
+        optionButton.AutoButtonColor =
+            false
+
+        optionButton.LayoutOrder =
+            index
+
+        optionButton.ZIndex =
+            72
+
+        optionButton.Parent =
+            furnitureTypeOptionsFrame
+
+        addStroke(
+            optionButton,
+            XP.BorderDark,
+            1
+        )
+
+        local optionPadding =
+            Instance.new(
+                "UIPadding"
+            )
+
+        optionPadding.PaddingLeft =
+            UDim.new(
+                0,
+                8
+            )
+
+        optionPadding.Parent =
+            optionButton
+
+        local optionGradient =
+            addGradient(
+                optionButton,
+                XP.ButtonTop,
+                XP.ButtonBottom
+            )
+
+        optionButton.MouseEnter:Connect(
+            function()
+
+                optionGradient.Color =
+                    ColorSequence.new({
+
+                        ColorSequenceKeypoint.new(
+                            0,
+                            Color3.fromRGB(
+                                255,
+                                255,
+                                255
+                            )
+                        ),
+
+                        ColorSequenceKeypoint.new(
+                            1,
+                            Color3.fromRGB(
+                                222,
+                                220,
+                                210
+                            )
+                        )
+                    })
+            end
+        )
+
+        optionButton.MouseLeave:Connect(
+            function()
+
+                optionGradient.Color =
+                    ColorSequence.new({
+
+                        ColorSequenceKeypoint.new(
+                            0,
+                            XP.ButtonTop
+                        ),
+
+                        ColorSequenceKeypoint.new(
+                            1,
+                            XP.ButtonBottom
+                        )
+                    })
+            end
+        )
+
+        optionButton.MouseButton1Click:Connect(
+            function()
+
+                selectedFurnitureType =
+                    option
+
+                updateFurnitureTypeDisplay()
+
+                furnitureTypeDropdown.Visible =
+                    false
+
+                refreshFurnitureModels()
+            end
+        )
+    end
+
+    furnitureTypeButton.MouseButton1Click:Connect(
+        function()
+
+            furnitureTypeDropdown.Visible =
+                not furnitureTypeDropdown.Visible
         end
     )
 
@@ -2981,9 +6803,6 @@ local function createSettingsWindow(parent)
 
     settingsResizeHandle =
         Instance.new("Frame")
-
-    settingsResizeHandle.Name =
-        "ResizeHandle"
 
     settingsResizeHandle.Size =
         UDim2.fromOffset(
@@ -3005,11 +6824,14 @@ local function createSettingsWindow(parent)
             -3
         )
 
-    settingsResizeHandle.BackgroundTransparency = 1
+    settingsResizeHandle.BackgroundTransparency =
+        1
 
-    settingsResizeHandle.BorderSizePixel = 0
+    settingsResizeHandle.BorderSizePixel =
+        0
 
-    settingsResizeHandle.ZIndex = 70
+    settingsResizeHandle.ZIndex =
+        80
 
     settingsResizeHandle.Parent =
         settingsWindow
@@ -3037,12 +6859,19 @@ local function createSettingsWindow(parent)
     settingsMinimizeButton.MouseButton1Click:Connect(
         function()
 
+            furnitureTypeDropdown.Visible =
+                false
+
             if settingsMinimized then
 
-                settingsMinimized = false
+                settingsMinimized =
+                    false
 
-                settingsContent.Visible = true
-                settingsResizeHandle.Visible = true
+                settingsContent.Visible =
+                    true
+
+                settingsResizeHandle.Visible =
+                    true
 
                 tween(
                     settingsWindow,
@@ -3062,10 +6891,14 @@ local function createSettingsWindow(parent)
                         settingsWindow.AbsoluteSize.Y
                     )
 
-                settingsMinimized = true
+                settingsMinimized =
+                    true
 
-                settingsContent.Visible = false
-                settingsResizeHandle.Visible = false
+                settingsContent.Visible =
+                    false
+
+                settingsResizeHandle.Visible =
+                    false
 
                 tween(
                     settingsWindow,
@@ -3090,6 +6923,9 @@ local function createSettingsWindow(parent)
 
     settingsMaximizeButton.MouseButton1Click:Connect(
         function()
+
+            furnitureTypeDropdown.Visible =
+                false
 
             if settingsMinimized then
                 return
@@ -3117,7 +6953,8 @@ local function createSettingsWindow(parent)
                         1080
                     )
 
-                settingsMaximized = true
+                settingsMaximized =
+                    true
 
                 tween(
                     settingsWindow,
@@ -3147,7 +6984,8 @@ local function createSettingsWindow(parent)
 
             else
 
-                settingsMaximized = false
+                settingsMaximized =
+                    false
 
                 tween(
                     settingsWindow,
@@ -3171,6 +7009,9 @@ local function createSettingsWindow(parent)
 
     settingsCloseButton.MouseButton1Click:Connect(
         function()
+
+            furnitureTypeDropdown.Visible =
+                false
 
             tween(
                 settingsWindow,
@@ -3200,6 +7041,18 @@ local function createSettingsWindow(parent)
 
                         settingsWindow.Size =
                             settingsNormalSize
+
+                        settingsContent.Visible =
+                            true
+
+                        settingsResizeHandle.Visible =
+                            true
+
+                        settingsMinimized =
+                            false
+
+                        settingsMaximized =
+                            false
                     end
                 end
             )
@@ -3223,11 +7076,20 @@ local function openSettings()
         return
     end
 
-    settingsMinimized = false
-    settingsMaximized = false
+    settingsMinimized =
+        false
 
-    settingsContent.Visible = true
-    settingsResizeHandle.Visible = true
+    settingsMaximized =
+        false
+
+    furnitureTypeDropdown.Visible =
+        false
+
+    settingsContent.Visible =
+        true
+
+    settingsResizeHandle.Visible =
+        true
 
     settingsNormalSize =
         UDim2.fromOffset(
@@ -3252,7 +7114,8 @@ local function openSettings()
             SETTINGS_DEFAULT_HEIGHT - 25
         )
 
-    settingsWindow.Visible = true
+    settingsWindow.Visible =
+        true
 
     tween(
         settingsWindow,
@@ -3267,10 +7130,86 @@ local function openSettings()
 end
 
 --// =========================================================
+--// Open Furniture
+--// =========================================================
+
+local function openFurnitureWindow()
+
+    if not furnitureWindow
+        or guiClosed then
+
+        return
+    end
+
+    if furnitureWindow.Visible then
+        return
+    end
+
+    furnitureMinimized =
+        false
+
+    furnitureMaximized =
+        false
+
+    furnitureContent.Visible =
+        true
+
+    furnitureResizeHandle.Visible =
+        true
+
+    furnitureNormalSize =
+        UDim2.fromOffset(
+            FURNITURE_DEFAULT_WIDTH,
+            FURNITURE_DEFAULT_HEIGHT
+        )
+
+    furnitureNormalPosition =
+        UDim2.new(
+            0.5,
+            -FURNITURE_DEFAULT_WIDTH / 2,
+            0.5,
+            -FURNITURE_DEFAULT_HEIGHT / 2
+        )
+
+    furnitureWindow.Position =
+        furnitureNormalPosition
+
+    furnitureWindow.Size =
+        UDim2.fromOffset(
+            FURNITURE_DEFAULT_WIDTH - 35,
+            FURNITURE_DEFAULT_HEIGHT - 25
+        )
+
+    furnitureWindow.Visible =
+        true
+
+    tween(
+        furnitureWindow,
+        {
+            Size =
+                furnitureNormalSize
+        },
+        0.36,
+        Enum.EasingStyle.Back,
+        Enum.EasingDirection.Out
+    )
+
+    task.spawn(
+        refreshFurnitureModels
+    )
+
+    task.defer(
+        updateFurnitureScrollbar
+    )
+end
+
+--// =========================================================
 --// Main Window
 --// =========================================================
 
-local function createMainWindow(parent)
+local function createMainWindow(
+    parent
+)
 
     mainWindow =
         Instance.new("Frame")
@@ -3295,7 +7234,8 @@ local function createMainWindow(parent)
     mainWindow.BackgroundColor3 =
         XP.WindowOuter
 
-    mainWindow.BorderSizePixel = 0
+    mainWindow.BorderSizePixel =
+        0
 
     mainWindow.ClipsDescendants =
         true
@@ -3327,7 +7267,7 @@ local function createMainWindow(parent)
         mainNormalSize
 
     --=========================================================
-    -- Main Title Bar
+    -- Title Bar
     --=========================================================
 
     mainTitleBar =
@@ -3350,9 +7290,11 @@ local function createMainWindow(parent)
     mainTitleBar.BackgroundColor3 =
         XP.TitleBlueTop
 
-    mainTitleBar.BorderSizePixel = 0
+    mainTitleBar.BorderSizePixel =
+        0
 
-    mainTitleBar.ZIndex = 10
+    mainTitleBar.ZIndex =
+        10
 
     mainTitleBar.Parent =
         mainWindow
@@ -3390,9 +7332,11 @@ local function createMainWindow(parent)
     titleCover.BackgroundColor3 =
         XP.TitleBlueBottom
 
-    titleCover.BorderSizePixel = 0
+    titleCover.BorderSizePixel =
+        0
 
-    titleCover.ZIndex = 10
+    titleCover.ZIndex =
+        10
 
     titleCover.Parent =
         mainTitleBar
@@ -3413,7 +7357,8 @@ local function createMainWindow(parent)
     local title =
         Instance.new("TextLabel")
 
-    title.BackgroundTransparency = 1
+    title.BackgroundTransparency =
+        1
 
     title.Position =
         UDim2.fromOffset(
@@ -3435,7 +7380,8 @@ local function createMainWindow(parent)
     title.Text =
         "SexyBlaster9000"
 
-    title.TextSize = 12
+    title.TextSize =
+        12
 
     title.TextColor3 =
         Color3.fromRGB(
@@ -3450,10 +7396,8 @@ local function createMainWindow(parent)
     title.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    title.TextStrokeTransparency =
-        1
-
-    title.ZIndex = 15
+    title.ZIndex =
+        15
 
     title.Parent =
         mainTitleBar
@@ -3461,7 +7405,8 @@ local function createMainWindow(parent)
     local version =
         Instance.new("TextLabel")
 
-    version.BackgroundTransparency = 1
+    version.BackgroundTransparency =
+        1
 
     version.Position =
         UDim2.new(
@@ -3478,12 +7423,13 @@ local function createMainWindow(parent)
         )
 
     version.Font =
-        XP_FONT
+        XP_FONT_UI
 
     version.Text =
         "v2"
 
-    version.TextSize = 10
+    version.TextSize =
+        10
 
     version.TextColor3 =
         Color3.fromRGB(
@@ -3495,13 +7441,14 @@ local function createMainWindow(parent)
     version.TextXAlignment =
         Enum.TextXAlignment.Right
 
-    version.ZIndex = 15
+    version.ZIndex =
+        15
 
     version.Parent =
         mainTitleBar
 
     --=========================================================
-    -- Main Window Controls
+    -- Controls
     --=========================================================
 
     mainMinimizeButton =
@@ -3576,7 +7523,6 @@ local function createMainWindow(parent)
             63
         )
 
-    -- Same exact icons used by settings.
     createWindowControlIcon(
         mainMinimizeButton,
         "minimize",
@@ -3596,7 +7542,7 @@ local function createMainWindow(parent)
     )
 
     --=========================================================
-    -- Main Content
+    -- Content
     --=========================================================
 
     mainContent =
@@ -3616,9 +7562,11 @@ local function createMainWindow(parent)
             33
         )
 
-    mainContent.BackgroundTransparency = 1
+    mainContent.BackgroundTransparency =
+        1
 
-    mainContent.ZIndex = 5
+    mainContent.ZIndex =
+        5
 
     mainContent.Parent =
         mainWindow
@@ -3666,12 +7614,14 @@ local function createMainWindow(parent)
             210
         )
 
-    fireIconBox.BorderSizePixel = 1
+    fireIconBox.BorderSizePixel =
+        1
 
     fireIconBox.BorderColor3 =
         XP.BorderDark
 
-    fireIconBox.ZIndex = 7
+    fireIconBox.ZIndex =
+        7
 
     fireIconBox.Parent =
         firingButton
@@ -3679,7 +7629,8 @@ local function createMainWindow(parent)
     local fireIcon =
         Instance.new("TextLabel")
 
-    fireIcon.BackgroundTransparency = 1
+    fireIcon.BackgroundTransparency =
+        1
 
     fireIcon.Size =
         UDim2.fromScale(
@@ -3690,9 +7641,11 @@ local function createMainWindow(parent)
     fireIcon.Font =
         XP_FONT_BOLD
 
-    fireIcon.Text = ">"
+    fireIcon.Text =
+        ">"
 
-    fireIcon.TextSize = 18
+    fireIcon.TextSize =
+        18
 
     fireIcon.TextColor3 =
         XP.BlueDark
@@ -3703,7 +7656,8 @@ local function createMainWindow(parent)
     fireIcon.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    fireIcon.ZIndex = 8
+    fireIcon.ZIndex =
+        8
 
     fireIcon.Parent =
         fireIconBox
@@ -3711,7 +7665,8 @@ local function createMainWindow(parent)
     local fireTitle =
         Instance.new("TextLabel")
 
-    fireTitle.BackgroundTransparency = 1
+    fireTitle.BackgroundTransparency =
+        1
 
     fireTitle.Position =
         UDim2.fromOffset(
@@ -3733,7 +7688,8 @@ local function createMainWindow(parent)
     fireTitle.Text =
         "Firing Status"
 
-    fireTitle.TextSize = 12
+    fireTitle.TextSize =
+        12
 
     fireTitle.TextColor3 =
         XP.Text
@@ -3741,7 +7697,8 @@ local function createMainWindow(parent)
     fireTitle.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    fireTitle.ZIndex = 7
+    fireTitle.ZIndex =
+        7
 
     fireTitle.Parent =
         firingButton
@@ -3749,7 +7706,8 @@ local function createMainWindow(parent)
     local fireHint =
         Instance.new("TextLabel")
 
-    fireHint.BackgroundTransparency = 1
+    fireHint.BackgroundTransparency =
+        1
 
     fireHint.Position =
         UDim2.fromOffset(
@@ -3766,12 +7724,13 @@ local function createMainWindow(parent)
         )
 
     fireHint.Font =
-        XP_FONT
+        XP_FONT_UI
 
     fireHint.Text =
         "Click to enable or disable"
 
-    fireHint.TextSize = 9
+    fireHint.TextSize =
+        11
 
     fireHint.TextColor3 =
         XP.TextSecondary
@@ -3779,7 +7738,8 @@ local function createMainWindow(parent)
     fireHint.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    fireHint.ZIndex = 7
+    fireHint.ZIndex =
+        7
 
     fireHint.Parent =
         firingButton
@@ -3787,7 +7747,8 @@ local function createMainWindow(parent)
     statusContainer =
         Instance.new("Frame")
 
-    statusContainer.BackgroundTransparency = 1
+    statusContainer.BackgroundTransparency =
+        1
 
     statusContainer.AnchorPoint =
         Vector2.new(
@@ -3809,7 +7770,8 @@ local function createMainWindow(parent)
             18
         )
 
-    statusContainer.ZIndex = 8
+    statusContainer.ZIndex =
+        8
 
     statusContainer.Parent =
         firingButton
@@ -3832,16 +7794,14 @@ local function createMainWindow(parent)
             5
         )
 
-    statusLayout.SortOrder =
-        Enum.SortOrder.LayoutOrder
-
     statusLayout.Parent =
         statusContainer
 
     statusValue =
         Instance.new("TextLabel")
 
-    statusValue.BackgroundTransparency = 1
+    statusValue.BackgroundTransparency =
+        1
 
     statusValue.Size =
         UDim2.fromOffset(
@@ -3850,9 +7810,10 @@ local function createMainWindow(parent)
         )
 
     statusValue.Font =
-        XP_FONT_BOLD
+        XP_FONT_UI_BOLD
 
-    statusValue.TextSize = 11
+    statusValue.TextSize =
+        11
 
     statusValue.TextXAlignment =
         Enum.TextXAlignment.Center
@@ -3860,9 +7821,8 @@ local function createMainWindow(parent)
     statusValue.TextYAlignment =
         Enum.TextYAlignment.Center
 
-    statusValue.LayoutOrder = 1
-
-    statusValue.ZIndex = 9
+    statusValue.LayoutOrder =
+        1
 
     statusValue.Parent =
         statusContainer
@@ -3876,11 +7836,11 @@ local function createMainWindow(parent)
             9
         )
 
-    statusDot.BorderSizePixel = 1
+    statusDot.BorderSizePixel =
+        1
 
-    statusDot.LayoutOrder = 2
-
-    statusDot.ZIndex = 9
+    statusDot.LayoutOrder =
+        2
 
     statusDot.Parent =
         statusContainer
@@ -3906,6 +7866,32 @@ local function createMainWindow(parent)
             false
         )
 
+    -- Force exact same base shade as the other XP blocks.
+    targetButton.BackgroundColor3 =
+        XP.ButtonMiddle
+
+    local targetGradient =
+        targetButton:FindFirstChildOfClass(
+            "UIGradient"
+        )
+
+    if targetGradient then
+
+        targetGradient.Color =
+            ColorSequence.new({
+
+                ColorSequenceKeypoint.new(
+                    0,
+                    XP.ButtonTop
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    XP.ButtonBottom
+                )
+            })
+    end
+
     local targetIconBox =
         Instance.new("Frame")
 
@@ -3928,30 +7914,34 @@ local function createMainWindow(parent)
             210
         )
 
-    targetIconBox.BorderSizePixel = 1
+    targetIconBox.BorderSizePixel =
+        1
 
     targetIconBox.BorderColor3 =
         XP.BorderDark
 
-    targetIconBox.ZIndex = 7
+    targetIconBox.ZIndex =
+        7
 
     targetIconBox.Parent =
         targetButton
 
-    local targetBoxAspect =
+    local targetAspect =
         Instance.new(
             "UIAspectRatioConstraint"
         )
 
-    targetBoxAspect.AspectRatio = 1
+    targetAspect.AspectRatio =
+        1
 
-    targetBoxAspect.Parent =
+    targetAspect.Parent =
         targetIconBox
 
     local targetIcon =
         Instance.new("ImageLabel")
 
-    targetIcon.BackgroundTransparency = 1
+    targetIcon.BackgroundTransparency =
+        1
 
     targetIcon.Size =
         UDim2.fromScale(
@@ -3965,25 +7955,17 @@ local function createMainWindow(parent)
     targetIcon.ScaleType =
         Enum.ScaleType.Fit
 
-    targetIcon.ZIndex = 8
+    targetIcon.ZIndex =
+        8
 
     targetIcon.Parent =
         targetIconBox
 
-    local targetIconAspect =
-        Instance.new(
-            "UIAspectRatioConstraint"
-        )
-
-    targetIconAspect.AspectRatio = 1
-
-    targetIconAspect.Parent =
-        targetIcon
-
     local targetTitle =
         Instance.new("TextLabel")
 
-    targetTitle.BackgroundTransparency = 1
+    targetTitle.BackgroundTransparency =
+        1
 
     targetTitle.Position =
         UDim2.fromOffset(
@@ -4005,7 +7987,8 @@ local function createMainWindow(parent)
     targetTitle.Text =
         "Current Target"
 
-    targetTitle.TextSize = 11
+    targetTitle.TextSize =
+        11
 
     targetTitle.TextColor3 =
         XP.Text
@@ -4013,7 +7996,8 @@ local function createMainWindow(parent)
     targetTitle.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    targetTitle.ZIndex = 7
+    targetTitle.ZIndex =
+        7
 
     targetTitle.Parent =
         targetButton
@@ -4021,7 +8005,8 @@ local function createMainWindow(parent)
     targetValue =
         Instance.new("TextLabel")
 
-    targetValue.BackgroundTransparency = 1
+    targetValue.BackgroundTransparency =
+        1
 
     targetValue.Position =
         UDim2.fromOffset(
@@ -4038,12 +8023,13 @@ local function createMainWindow(parent)
         )
 
     targetValue.Font =
-        XP_FONT
+        XP_FONT_UI
 
     targetValue.Text =
         "None"
 
-    targetValue.TextSize = 10
+    targetValue.TextSize =
+        11
 
     targetValue.TextColor3 =
         XP.TextSecondary
@@ -4057,7 +8043,8 @@ local function createMainWindow(parent)
     targetValue.TextTruncate =
         Enum.TextTruncate.AtEnd
 
-    targetValue.ZIndex = 7
+    targetValue.ZIndex =
+        7
 
     targetValue.Parent =
         targetButton
@@ -4073,7 +8060,7 @@ local function createMainWindow(parent)
                 1,
                 0,
                 0,
-                34
+                40
             ),
             UDim2.fromOffset(
                 0,
@@ -4083,21 +8070,62 @@ local function createMainWindow(parent)
             false
         )
 
+    local gearBox =
+        Instance.new("Frame")
+
+    gearBox.Size =
+        UDim2.fromOffset(
+            30,
+            30
+        )
+
+    gearBox.Position =
+        UDim2.fromOffset(
+            5,
+            5
+        )
+
+    gearBox.BackgroundColor3 =
+        Color3.fromRGB(
+            225,
+            222,
+            210
+        )
+
+    gearBox.BorderSizePixel =
+        1
+
+    gearBox.BorderColor3 =
+        XP.BorderDark
+
+    gearBox.ZIndex =
+        7
+
+    gearBox.Parent =
+        settingsButton
+
     local gear =
         Instance.new("ImageLabel")
 
-    gear.BackgroundTransparency = 1
-
-    gear.Position =
-        UDim2.fromOffset(
-            9,
-            7
-        )
+    gear.BackgroundTransparency =
+        1
 
     gear.Size =
         UDim2.fromOffset(
             20,
             20
+        )
+
+    gear.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
+
+    gear.Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
         )
 
     gear.Image =
@@ -4113,47 +8141,40 @@ local function createMainWindow(parent)
     gear.ScaleType =
         Enum.ScaleType.Fit
 
-    gear.ZIndex = 7
+    gear.ZIndex =
+        8
 
     gear.Parent =
-        settingsButton
-
-    local gearAspect =
-        Instance.new(
-            "UIAspectRatioConstraint"
-        )
-
-    gearAspect.AspectRatio = 1
-
-    gearAspect.Parent =
-        gear
+        gearBox
 
     local settingsTitle =
         Instance.new("TextLabel")
 
-    settingsTitle.BackgroundTransparency = 1
+    settingsTitle.BackgroundTransparency =
+        1
 
     settingsTitle.Position =
         UDim2.fromOffset(
-            39,
-            2
+            41,
+            3
         )
 
     settingsTitle.Size =
         UDim2.new(
             1,
-            -55,
+            -56,
             0,
-            16
+            17
         )
 
     settingsTitle.Font =
-        XP_FONT_BOLD
+        XP_FONT_UI_BOLD
 
     settingsTitle.Text =
         "Settings"
 
-    settingsTitle.TextSize = 11
+    settingsTitle.TextSize =
+        12
 
     settingsTitle.TextColor3 =
         XP.Text
@@ -4161,7 +8182,8 @@ local function createMainWindow(parent)
     settingsTitle.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    settingsTitle.ZIndex = 7
+    settingsTitle.ZIndex =
+        7
 
     settingsTitle.Parent =
         settingsButton
@@ -4169,29 +8191,31 @@ local function createMainWindow(parent)
     local settingsHint =
         Instance.new("TextLabel")
 
-    settingsHint.BackgroundTransparency = 1
+    settingsHint.BackgroundTransparency =
+        1
 
     settingsHint.Position =
         UDim2.fromOffset(
-            39,
-            16
+            41,
+            19
         )
 
     settingsHint.Size =
         UDim2.new(
             1,
-            -55,
+            -56,
             0,
-            12
+            14
         )
 
     settingsHint.Font =
-        XP_FONT
+        XP_FONT_UI
 
     settingsHint.Text =
         "Open configuration window"
 
-    settingsHint.TextSize = 9
+    settingsHint.TextSize =
+        11
 
     settingsHint.TextColor3 =
         XP.TextSecondary
@@ -4199,10 +8223,190 @@ local function createMainWindow(parent)
     settingsHint.TextXAlignment =
         Enum.TextXAlignment.Left
 
-    settingsHint.ZIndex = 7
+    settingsHint.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    settingsHint.ZIndex =
+        7
 
     settingsHint.Parent =
         settingsButton
+
+    --=========================================================
+    -- Furniture Button
+    --=========================================================
+
+    furnitureButton =
+        createXPButton(
+            mainContent,
+            UDim2.new(
+                1,
+                0,
+                0,
+                40
+            ),
+            UDim2.fromOffset(
+                0,
+                134
+            ),
+            5,
+            false
+        )
+
+    local furnitureIconBox =
+        Instance.new("Frame")
+
+    furnitureIconBox.Size =
+        UDim2.fromOffset(
+            30,
+            30
+        )
+
+    furnitureIconBox.Position =
+        UDim2.fromOffset(
+            5,
+            5
+        )
+
+    furnitureIconBox.BackgroundColor3 =
+        Color3.fromRGB(
+            225,
+            222,
+            210
+        )
+
+    furnitureIconBox.BorderSizePixel =
+        1
+
+    furnitureIconBox.BorderColor3 =
+        XP.BorderDark
+
+    furnitureIconBox.ZIndex =
+        7
+
+    furnitureIconBox.Parent =
+        furnitureButton
+
+    local furnitureIcon =
+        Instance.new("TextLabel")
+
+    furnitureIcon.BackgroundTransparency =
+        1
+
+    furnitureIcon.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    furnitureIcon.Font =
+        XP_FONT_UI_BOLD
+
+    furnitureIcon.Text =
+        "F"
+
+    furnitureIcon.TextSize =
+        13
+
+    furnitureIcon.TextColor3 =
+        XP.BlueDark
+
+    furnitureIcon.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    furnitureIcon.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureIcon.ZIndex =
+        8
+
+    furnitureIcon.Parent =
+        furnitureIconBox
+
+    local furnitureTitle =
+        Instance.new("TextLabel")
+
+    furnitureTitle.BackgroundTransparency =
+        1
+
+    furnitureTitle.Position =
+        UDim2.fromOffset(
+            41,
+            3
+        )
+
+    furnitureTitle.Size =
+        UDim2.new(
+            1,
+            -56,
+            0,
+            17
+        )
+
+    furnitureTitle.Font =
+        XP_FONT_UI_BOLD
+
+    furnitureTitle.Text =
+        "Furniture Spawner"
+
+    furnitureTitle.TextSize =
+        12
+
+    furnitureTitle.TextColor3 =
+        XP.Text
+
+    furnitureTitle.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureTitle.ZIndex =
+        7
+
+    furnitureTitle.Parent =
+        furnitureButton
+
+    local furnitureHint =
+        Instance.new("TextLabel")
+
+    furnitureHint.BackgroundTransparency =
+        1
+
+    furnitureHint.Position =
+        UDim2.fromOffset(
+            41,
+            19
+        )
+
+    furnitureHint.Size =
+        UDim2.new(
+            1,
+            -56,
+            0,
+            14
+        )
+
+    furnitureHint.Font =
+        XP_FONT_UI
+
+    furnitureHint.Text =
+        "Open furniture spawning window"
+
+    furnitureHint.TextSize =
+        11
+
+    furnitureHint.TextColor3 =
+        XP.TextSecondary
+
+    furnitureHint.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    furnitureHint.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    furnitureHint.ZIndex =
+        7
+
+    furnitureHint.Parent =
+        furnitureButton
 
     --=========================================================
     -- Main Resize Handle
@@ -4210,9 +8414,6 @@ local function createMainWindow(parent)
 
     mainResizeHandle =
         Instance.new("Frame")
-
-    mainResizeHandle.Name =
-        "ResizeHandle"
 
     mainResizeHandle.Size =
         UDim2.fromOffset(
@@ -4234,11 +8435,14 @@ local function createMainWindow(parent)
             -3
         )
 
-    mainResizeHandle.BackgroundTransparency = 1
+    mainResizeHandle.BackgroundTransparency =
+        1
 
-    mainResizeHandle.BorderSizePixel = 0
+    mainResizeHandle.BorderSizePixel =
+        0
 
-    mainResizeHandle.ZIndex = 30
+    mainResizeHandle.ZIndex =
+        30
 
     mainResizeHandle.Parent =
         mainWindow
@@ -4256,11 +8460,17 @@ local function createMainWindow(parent)
 
             if State.isRunning then
 
-                State.isRunning = false
-                State.shootingEnabled = false
+                State.isRunning =
+                    false
 
-                State.currentTarget = nil
-                State.currentTargetName = "None"
+                State.shootingEnabled =
+                    false
+
+                State.currentTarget =
+                    nil
+
+                State.currentTargetName =
+                    "None"
 
                 updateStatus()
                 updateTarget()
@@ -4270,8 +8480,11 @@ local function createMainWindow(parent)
 
             if not hasEquinoxCannon() then
 
-                State.isRunning = false
-                State.shootingEnabled = false
+                State.isRunning =
+                    false
+
+                State.shootingEnabled =
+                    false
 
                 updateStatus()
 
@@ -4283,13 +8496,47 @@ local function createMainWindow(parent)
             State.playerAlive =
                 isPlayerAlive()
 
-            State.isRunning = true
-            State.shootingEnabled = true
+            State.isRunning =
+                true
 
-            State.shootingErrors = 0
-            State.lastFireTime = 0
+            State.shootingEnabled =
+                true
+
+            State.shootingErrors =
+                0
+
+            State.lastFireTime =
+                0
 
             updateStatus()
+        end
+    )
+
+    --=========================================================
+    -- Settings Open
+    --=========================================================
+
+    settingsButton.MouseButton1Click:Connect(
+        function()
+
+            if settingsWindow
+                and settingsWindow.Visible then
+
+                return
+            end
+
+            openSettings()
+        end
+    )
+
+    --=========================================================
+    -- Furniture Open
+    --=========================================================
+
+    furnitureButton.MouseButton1Click:Connect(
+        function()
+
+            openFurnitureWindow()
         end
     )
 
@@ -4306,10 +8553,14 @@ local function createMainWindow(parent)
 
             if mainMinimized then
 
-                mainMinimized = false
+                mainMinimized =
+                    false
 
-                mainContent.Visible = true
-                mainResizeHandle.Visible = true
+                mainContent.Visible =
+                    true
+
+                mainResizeHandle.Visible =
+                    true
 
                 tween(
                     mainWindow,
@@ -4332,10 +8583,14 @@ local function createMainWindow(parent)
                 mainNormalSize =
                     mainRestoreSize
 
-                mainMinimized = true
+                mainMinimized =
+                    true
 
-                mainContent.Visible = false
-                mainResizeHandle.Visible = false
+                mainContent.Visible =
+                    false
+
+                mainResizeHandle.Visible =
+                    false
 
                 tween(
                     mainWindow,
@@ -4392,7 +8647,8 @@ local function createMainWindow(parent)
                         1080
                     )
 
-                mainMaximized = true
+                mainMaximized =
+                    true
 
                 tween(
                     mainWindow,
@@ -4422,7 +8678,8 @@ local function createMainWindow(parent)
 
             else
 
-                mainMaximized = false
+                mainMaximized =
+                    false
 
                 tween(
                     mainWindow,
@@ -4454,13 +8711,24 @@ local function createMainWindow(parent)
                 return
             end
 
-            guiClosed = true
+            guiClosed =
+                true
 
-            State.isRunning = false
-            State.shootingEnabled = false
-            State.currentTarget = nil
+            State.isRunning =
+                false
 
-            setResizeCursor(false)
+            State.shootingEnabled =
+                false
+
+            State.currentTarget =
+                nil
+
+            furnitureState.waitingForClick =
+                false
+
+            setResizeCursor(
+                false
+            )
 
             tween(
                 mainWindow,
@@ -4480,6 +8748,24 @@ local function createMainWindow(parent)
 
                 tween(
                     settingsWindow,
+                    {
+                        Size =
+                            UDim2.fromOffset(
+                                0,
+                                0
+                            )
+                    },
+                    0.20,
+                    Enum.EasingStyle.Back,
+                    Enum.EasingDirection.In
+                )
+            end
+
+            if furnitureWindow
+                and furnitureWindow.Visible then
+
+                tween(
+                    furnitureWindow,
                     {
                         Size =
                             UDim2.fromOffset(
@@ -4519,7 +8805,10 @@ local function createMainWindow(parent)
             task.delay(
                 0.28,
                 function()
-                    safeDestroy(gui)
+
+                    safeDestroy(
+                        gui
+                    )
                 end
             )
         end
@@ -4597,36 +8886,30 @@ local function createGUI()
         if syn
             and syn.protect_gui then
 
-            syn.protect_gui(gui)
+            syn.protect_gui(
+                gui
+            )
         end
     end)
 
     gui.Parent =
         parentGui
 
-    createMainWindow(gui)
-    createSettingsWindow(gui)
+    createMainWindow(
+        gui
+    )
 
-    settingsButton.MouseButton1Click:Connect(
-        function()
+    createSettingsWindow(
+        gui
+    )
 
-            if settingsWindow
-                and settingsWindow.Visible then
-
-                return
-            end
-
-            openSettings()
-        end
+    createFurnitureWindow(
+        gui
     )
 
     updateStatus()
     updateTarget()
     updateAutoEquip()
-
-    --=========================================================
-    -- Opening Animation
-    --=========================================================
 
     mainWindow.Size =
         UDim2.fromOffset(
@@ -4686,8 +8969,11 @@ function API.Start()
 
     if not hasEquinoxCannon() then
 
-        State.isRunning = false
-        State.shootingEnabled = false
+        State.isRunning =
+            false
+
+        State.shootingEnabled =
+            false
 
         updateStatus()
 
@@ -4699,11 +8985,17 @@ function API.Start()
     State.playerAlive =
         isPlayerAlive()
 
-    State.isRunning = true
-    State.shootingEnabled = true
+    State.isRunning =
+        true
 
-    State.shootingErrors = 0
-    State.lastFireTime = 0
+    State.shootingEnabled =
+        true
+
+    State.shootingErrors =
+        0
+
+    State.lastFireTime =
+        0
 
     updateStatus()
 
@@ -4712,19 +9004,28 @@ end
 
 function API.Stop()
 
-    State.isRunning = false
-    State.shootingEnabled = false
+    State.isRunning =
+        false
 
-    State.currentTarget = nil
-    State.currentTargetName = "None"
+    State.shootingEnabled =
+        false
+
+    State.currentTarget =
+        nil
+
+    State.currentTargetName =
+        "None"
 
     updateStatus()
     updateTarget()
 end
 
-function API.SetTarget(target)
+function API.SetTarget(
+    target
+)
 
-    if typeof(target) == "Instance" then
+    if typeof(target) ==
+        "Instance" then
 
         State.currentTarget =
             target
@@ -4732,7 +9033,8 @@ function API.SetTarget(target)
         State.currentTargetName =
             target.Name or "None"
 
-    elseif typeof(target) == "table"
+    elseif typeof(target) ==
+        "table"
         and target.Model
         and target.TargetPart then
 
@@ -4744,27 +9046,38 @@ function API.SetTarget(target)
             or target.Model.Name
             or "None"
 
-    elseif typeof(target) == "string" then
+    elseif typeof(target) ==
+        "string" then
 
-        State.currentTarget = nil
-        State.currentTargetName = target
+        State.currentTarget =
+            nil
+
+        State.currentTargetName =
+            target
 
     else
 
-        State.currentTarget = nil
-        State.currentTargetName = "None"
+        State.currentTarget =
+            nil
+
+        State.currentTargetName =
+            "None"
     end
 
     updateTarget()
 end
 
-function API.SetPlayerAlive(alive)
+function API.SetPlayerAlive(
+    alive
+)
 
     State.playerAlive =
         alive == true
 end
 
-function API.SetShootingEnabled(enabled)
+function API.SetShootingEnabled(
+    enabled
+)
 
     State.shootingEnabled =
         enabled == true
@@ -4772,22 +9085,29 @@ function API.SetShootingEnabled(enabled)
     updateStatus()
 end
 
-function API.SetShootingErrors(count)
+function API.SetShootingErrors(
+    count
+)
 
     State.shootingErrors =
         math.max(
             0,
-            tonumber(count) or 0
+            tonumber(
+                count
+            ) or 0
         )
 end
 
-function API.SetAutoEquip(enabled)
+function API.SetAutoEquip(
+    enabled
+)
 
     if enabled then
 
         if not hasEquinoxCannon() then
 
-            State.autoEquip = false
+            State.autoEquip =
+                false
 
             updateAutoEquip()
 
@@ -4813,6 +9133,7 @@ end
 function API.GetStatus()
 
     return {
+
         Running =
             State.isRunning,
 
@@ -4838,6 +9159,59 @@ function API.GetStatus()
         HasEquinoxCannon =
             hasEquinoxCannon()
     }
+end
+
+function API.OpenFurnitureSpawner()
+
+    openFurnitureWindow()
+end
+
+function API.RefreshFurnitureModels()
+
+    refreshFurnitureModels()
+end
+
+function API.GetSelectedFurniture()
+
+    return furnitureState.selectedModel
+end
+
+function API.ClearFurnitureSelection()
+
+    clearFurnitureSelection()
+end
+
+function API.SetFurnitureType(
+    furnitureType
+)
+
+    for _, option in ipairs(
+        FURNITURE_TYPE_OPTIONS
+    ) do
+
+        if option == furnitureType then
+
+            selectedFurnitureType =
+                furnitureType
+
+            if furnitureTypeValue then
+
+                furnitureTypeValue.Text =
+                    furnitureType
+            end
+
+            refreshFurnitureModels()
+
+            return true
+        end
+    end
+
+    return false
+end
+
+function API.GetFurnitureType()
+
+    return selectedFurnitureType
 end
 
 --// =========================================================
@@ -4878,8 +9252,11 @@ task.spawn(
 
             else
 
-                State.currentTarget = nil
-                State.currentTargetName = "None"
+                State.currentTarget =
+                    nil
+
+                State.currentTargetName =
+                    "None"
             end
 
             RunService.Heartbeat:Wait()
@@ -4924,11 +9301,16 @@ task.spawn(
 
             else
 
-                State.currentTarget = nil
-                State.currentTargetName = "None"
+                State.currentTarget =
+                    nil
+
+                State.currentTargetName =
+                    "None"
             end
 
-            task.wait(0.3)
+            task.wait(
+                0.3
+            )
         end
     end
 )
@@ -4950,8 +9332,11 @@ task.spawn(
             updateStatus()
             updateTarget()
             updateAutoEquip()
+            updateFurnitureScrollbar()
 
-            task.wait(0.15)
+            task.wait(
+                0.15
+            )
         end
     end
 )
