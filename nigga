@@ -44,7 +44,7 @@ local IGNORE_ENEMIES = {
 
 local FURNITURE_CONFIG = {
     Title = "Furniture Spawner",
-    ToolName = "Heavy Egg",
+    NormalToolName = "Wall",
     RemoteName = "RemoteFunction"
 }
 
@@ -151,7 +151,9 @@ local recoveryToken = 0
 
 local XP_ICON = "rbxassetid://2409976478"
 local TARGET_ICON = "rbxassetid://120660820088276"
-local GEAR_ICON = "rbxassetid://6031280882"
+local FIRE_ICON = "rbxassetid://83978714441208"
+local GEAR_ICON = "rbxassetid://93556300463624"
+local FURNITURE_ICON = "rbxassetid://88708951330963"
 local ERROR_ICON = "rbxassetid://123302547057574"
 
 local RESIZE_CURSOR =
@@ -498,6 +500,7 @@ local furnitureScrollThumb
 local furnitureTypeButton
 local furnitureTypeValue
 local furnitureTypeDropdown
+local furnitureTypeDropdownArrow
 local furnitureTypeOptionsFrame
 
 --// =========================================================
@@ -512,6 +515,9 @@ local settingsMaximized = false
 
 local furnitureMinimized = false
 local furnitureMaximized = false
+
+local furnitureTypeDropdownOpen = false
+local furnitureTypeDropdownAnimationToken = 0
 
 local guiClosed = false
 
@@ -681,6 +687,135 @@ local function isShiftHeld()
         UserInputService:IsKeyDown(
             Enum.KeyCode.RightShift
         )
+end
+
+local FURNITURE_TYPE_DROPDOWN_OPTION_HEIGHT =
+    19
+
+local FURNITURE_TYPE_DROPDOWN_HEIGHT =
+    (#FURNITURE_TYPE_OPTIONS * FURNITURE_TYPE_DROPDOWN_OPTION_HEIGHT) + 2
+
+local function openFurnitureTypeDropdown()
+
+    if not furnitureTypeDropdown
+        or not settingsWindow
+        or furnitureTypeDropdownOpen then
+
+        return
+    end
+
+    if settingsMinimized then
+        return
+    end
+
+    furnitureTypeDropdownOpen =
+        true
+
+    furnitureTypeDropdownAnimationToken +=
+        1
+
+    local currentToken =
+        furnitureTypeDropdownAnimationToken
+
+    furnitureTypeDropdown.Visible =
+        true
+
+    furnitureTypeDropdown.Position =
+        UDim2.fromOffset(
+            0,
+            134
+        )
+
+    furnitureTypeDropdown.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            0
+        )
+
+    --// Animate only the drop list; the arrow remains completely static.
+    tween(
+        furnitureTypeDropdown,
+        {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    FURNITURE_TYPE_DROPDOWN_HEIGHT
+                )
+        },
+        0.16,
+        Enum.EasingStyle.Quad,
+        Enum.EasingDirection.Out
+    )
+end
+
+local function closeFurnitureTypeDropdown(
+    animated
+)
+
+    if not furnitureTypeDropdown then
+        return
+    end
+
+    furnitureTypeDropdownOpen =
+        false
+
+    furnitureTypeDropdownAnimationToken +=
+        1
+
+    local currentToken =
+        furnitureTypeDropdownAnimationToken
+
+    if not animated then
+
+        furnitureTypeDropdown.Visible =
+            false
+
+        furnitureTypeDropdown.Size =
+            UDim2.new(
+                1,
+                0,
+                0,
+                0
+            )
+
+        return
+    end
+
+    tween(
+        furnitureTypeDropdown,
+        {
+            Size =
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    0
+                )
+        },
+        0.12,
+        Enum.EasingStyle.Quad,
+        Enum.EasingDirection.In
+    )
+
+    task.delay(
+        0.13,
+        function()
+
+            if currentToken ~=
+                furnitureTypeDropdownAnimationToken
+                or furnitureTypeDropdownOpen then
+
+                return
+            end
+
+            furnitureTypeDropdown.Visible =
+                false
+        end
+    )
 end
 
 --// =========================================================
@@ -1234,108 +1369,40 @@ local function hasEquinoxCannon()
     return false
 end
 
-local function hasHeavyEgg()
+local function getFurnitureCategory(
+    modelName
+)
 
-    local character =
-        player.Character
+    local nameLower =
+        tostring(
+            modelName or ""
+        ):lower()
 
-    if character then
+    if nameLower:find(
+        "egg",
+        1,
+        true
+    ) then
 
-        local equippedTool =
-            character:FindFirstChild(
-                FURNITURE_CONFIG.ToolName
-            )
-
-        if equippedTool
-            and equippedTool:IsA("Tool") then
-
-            return true
-        end
+        return "Eggs"
     end
 
-    local backpack =
-        player:FindFirstChildOfClass(
-            "Backpack"
-        )
+    if nameLower:find(
+        "gift",
+        1,
+        true
+    ) then
 
-    if backpack then
-
-        local inventoryTool =
-            backpack:FindFirstChild(
-                FURNITURE_CONFIG.ToolName
-            )
-
-        if inventoryTool
-            and inventoryTool:IsA("Tool") then
-
-            return true
-        end
+        return "Gifts"
     end
 
-    return false
+    return "Furniture"
 end
 
-local function autoEquipTool()
-
-    if not State.autoEquip
-        or not State.isRunning
-        or not State.playerAlive then
-
-        return false
-    end
-
-    local now =
-        tick()
-
-    if now - State.lastToolEquipTime
-        < State.toolEquipCooldown then
-
-        return false
-    end
-
-    local character =
-        player.Character
-
-    if not character then
-        return false
-    end
-
-    local humanoid =
-        character:FindFirstChildOfClass(
-            "Humanoid"
-        )
-
-    if not humanoid then
-        return false
-    end
-
-    local equippedTool =
-        character:FindFirstChild(
-            CONFIG.TOOL_NAME
-        )
-
-    if equippedTool
-        and equippedTool:IsA("Tool") then
-
-        State.lastToolEquipTime =
-            now
-
-        return true
-    end
-
-    local backpack =
-        player:FindFirstChildOfClass(
-            "Backpack"
-        )
-
-    if not backpack then
-        return false
-    end
-
-    local tool =
-        backpack:FindFirstChild(
-            CONFIG.TOOL_NAME
-        )
+local function furnitureToolMatchesCategory(
+    tool,
+    category
+)
 
     if not tool
         or not tool:IsA("Tool") then
@@ -1343,77 +1410,111 @@ local function autoEquipTool()
         return false
     end
 
-    pcall(function()
+    local toolName =
+        tool.Name
 
-        humanoid:EquipTool(
-            tool
-        )
+    local nameLower =
+        toolName:lower()
 
-    end)
+    if category == "Furniture" then
 
-    task.wait(
-        0.1
-    )
+        return toolName ==
+            FURNITURE_CONFIG.NormalToolName
+    end
 
-    State.lastToolEquipTime =
-        now
+    if category == "Eggs" then
 
-    return true
+        if nameLower == "egg"
+            or nameLower ==
+                "ominous dark egg" then
+
+            return false
+        end
+
+        return nameLower:find(
+            "egg",
+            1,
+            true
+        ) ~= nil
+    end
+
+    if category == "Gifts" then
+
+        return nameLower:find(
+            "gift",
+            1,
+            true
+        ) ~= nil
+    end
+
+    return false
 end
 
 --// =========================================================
 --// Furniture Remote
 --// =========================================================
 
-local function getFurnitureRemote()
+local function getFurnitureRemote(
+    modelName
+)
+
+    local category =
+        getFurnitureCategory(
+            modelName
+        )
 
     local character =
         player.Character
 
-    local tool
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    local containers = {}
 
     if character then
-
-        tool =
-            character:FindFirstChild(
-                FURNITURE_CONFIG.ToolName
-            )
+        table.insert(
+            containers,
+            character
+        )
     end
 
-    if not tool then
+    if backpack then
+        table.insert(
+            containers,
+            backpack
+        )
+    end
 
-        local backpack =
-            player:FindFirstChildOfClass(
-                "Backpack"
-            )
+    for _, container in ipairs(
+        containers
+    ) do
 
-        if backpack then
+        for _, tool in ipairs(
+            container:GetChildren()
+        ) do
 
-            tool =
-                backpack:FindFirstChild(
-                    FURNITURE_CONFIG.ToolName
-                )
+            if furnitureToolMatchesCategory(
+                tool,
+                category
+            ) then
+
+                local remote =
+                    tool:FindFirstChild(
+                        FURNITURE_CONFIG.RemoteName
+                    )
+
+                if remote
+                    and remote:IsA("RemoteFunction") then
+
+                    return remote, category
+                end
+            end
         end
     end
 
-    if not tool
-        or not tool:IsA("Tool") then
-
-        return nil
-    end
-
-    local remote =
-        tool:FindFirstChild(
-            FURNITURE_CONFIG.RemoteName
-        )
-
-    if not remote
-        or not remote:IsA("RemoteFunction") then
-
-        return nil
-    end
-
-    return remote
+    return nil, category
 end
 
 --// =========================================================
@@ -2338,25 +2439,10 @@ local function furnitureMouseSpawn()
         }
     }
 
-    if not hasHeavyEgg() then
-
-        furnitureState.waitingForClick =
-            true
-
-        setFurnitureStatus(
-            "Selected: " ..
-            modelToSpawn.Name ..
-            " → click in game",
-            "active"
+    local remote, furnitureCategory =
+        getFurnitureRemote(
+            modelToSpawn.Name
         )
-
-        showFurnitureMissingError()
-
-        return
-    end
-
-    local remote =
-        getFurnitureRemote()
 
     if not remote then
 
@@ -2370,7 +2456,9 @@ local function furnitureMouseSpawn()
             "active"
         )
 
-        showFurnitureMissingError()
+        showFurnitureMissingError(
+            furnitureCategory
+        )
 
         return
     end
@@ -3780,7 +3868,9 @@ showCannonMissingError =
     end
 
 showFurnitureMissingError =
-    function()
+    function(
+        furnitureCategory
+    )
 
         if not gui
             or guiClosed then
@@ -3788,8 +3878,34 @@ showFurnitureMissingError =
             return
         end
 
+        local message
+
+        if furnitureCategory ==
+            "Furniture" then
+
+            message =
+                "Wall was not found in your inventory."
+
+        elseif furnitureCategory ==
+            "Eggs" then
+
+            message =
+                "A valid Egg tool was not found in your inventory."
+
+        elseif furnitureCategory ==
+            "Gifts" then
+
+            message =
+                "A Gift tool was not found in your inventory."
+
+        else
+
+            message =
+                "Required furniture tool was not found in your inventory."
+        end
+
         return createErrorWindow(
-            "Heavy Egg was not found in your inventory."
+            message
         )
     end
 
@@ -5772,7 +5888,7 @@ local function createSettingsWindow(
         false
 
     settingsWindow.ClipsDescendants =
-        true
+        false
 
     settingsWindow.ZIndex =
         50
@@ -6389,12 +6505,13 @@ local function createSettingsWindow(
     furnitureTypeButton =
         Instance.new("TextButton")
 
+    --// XP-style combo box: flat white field with a compact arrow button.
     furnitureTypeButton.Size =
         UDim2.new(
             1,
             0,
             0,
-            36
+            28
         )
 
     furnitureTypeButton.Position =
@@ -6404,7 +6521,11 @@ local function createSettingsWindow(
         )
 
     furnitureTypeButton.BackgroundColor3 =
-        XP.ButtonMiddle
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
 
     furnitureTypeButton.BorderSizePixel =
         0
@@ -6423,59 +6544,13 @@ local function createSettingsWindow(
 
     addStroke(
         furnitureTypeButton,
-        XP.BorderDark,
+        Color3.fromRGB(
+            126,
+            154,
+            184
+        ),
         1
     )
-
-    addGradient(
-        furnitureTypeButton,
-        XP.ButtonTop,
-        XP.ButtonBottom
-    )
-
-    local furnitureTypeTitle =
-        Instance.new("TextLabel")
-
-    furnitureTypeTitle.BackgroundTransparency =
-        1
-
-    furnitureTypeTitle.Position =
-        UDim2.fromOffset(
-            9,
-            0
-        )
-
-    furnitureTypeTitle.Size =
-        UDim2.new(
-            1,
-            -45,
-            1,
-            0
-        )
-
-    furnitureTypeTitle.Font =
-        XP_FONT_UI
-
-    furnitureTypeTitle.Text =
-        "Show:"
-
-    furnitureTypeTitle.TextSize =
-        11
-
-    furnitureTypeTitle.TextColor3 =
-        XP.TextSecondary
-
-    furnitureTypeTitle.TextXAlignment =
-        Enum.TextXAlignment.Left
-
-    furnitureTypeTitle.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    furnitureTypeTitle.ZIndex =
-        58
-
-    furnitureTypeTitle.Parent =
-        furnitureTypeButton
 
     furnitureTypeValue =
         Instance.new("TextLabel")
@@ -6485,26 +6560,26 @@ local function createSettingsWindow(
 
     furnitureTypeValue.Position =
         UDim2.fromOffset(
-            48,
+            7,
             0
         )
 
     furnitureTypeValue.Size =
         UDim2.new(
             1,
-            -80,
+            -31,
             1,
             0
         )
 
     furnitureTypeValue.Font =
-        XP_FONT_UI_BOLD
+        XP_FONT_UI
 
     furnitureTypeValue.Text =
         selectedFurnitureType
 
     furnitureTypeValue.TextSize =
-        12
+        11
 
     furnitureTypeValue.TextColor3 =
         XP.Text
@@ -6524,34 +6599,56 @@ local function createSettingsWindow(
     local dropdownArrow =
         Instance.new("TextLabel")
 
+    --// XP Luna-style arrow button: pale sky-blue square with dark blue arrow.
     dropdownArrow.BackgroundTransparency =
+        0
+
+    dropdownArrow.BackgroundColor3 =
+        Color3.fromRGB(
+            216,
+            233,
+            248
+        )
+
+    dropdownArrow.BorderSizePixel =
         1
+
+    dropdownArrow.BorderColor3 =
+        Color3.fromRGB(
+            118,
+            149,
+            180
+        )
 
     dropdownArrow.Size =
         UDim2.fromOffset(
-            24,
-            36
+            19,
+            22
         )
 
     dropdownArrow.Position =
         UDim2.new(
             1,
-            -28,
+            -21,
             0,
-            0
+            3
         )
 
     dropdownArrow.Font =
-        XP_FONT_UI_BOLD
+        Enum.Font.ArialBold
 
     dropdownArrow.Text =
         "▼"
 
     dropdownArrow.TextSize =
-        9
+        8
 
     dropdownArrow.TextColor3 =
-        XP.BlueDark
+        Color3.fromRGB(
+            24,
+            78,
+            136
+        )
 
     dropdownArrow.TextXAlignment =
         Enum.TextXAlignment.Center
@@ -6560,10 +6657,15 @@ local function createSettingsWindow(
         Enum.TextYAlignment.Center
 
     dropdownArrow.ZIndex =
-        58
+        59
 
     dropdownArrow.Parent =
         furnitureTypeButton
+
+    addCorner(
+        dropdownArrow,
+        2
+    )
 
     furnitureTypeDropdown =
         Instance.new("Frame")
@@ -6573,23 +6675,35 @@ local function createSettingsWindow(
             1,
             0,
             0,
-            150
+            0
         )
 
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            144
+            143
         )
 
+    --// Windows XP drop list: white list with a 1px black outline.
     furnitureTypeDropdown.BackgroundColor3 =
-        XP.WindowInner
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
 
     furnitureTypeDropdown.BorderSizePixel =
         1
 
     furnitureTypeDropdown.BorderColor3 =
-        XP.BorderDark
+        Color3.fromRGB(
+            0,
+            0,
+            0
+        )
+
+    furnitureTypeDropdown.ClipsDescendants =
+        true
 
     furnitureTypeDropdown.Visible =
         false
@@ -6600,25 +6714,38 @@ local function createSettingsWindow(
     furnitureTypeDropdown.Parent =
         settingsContent
 
+    furnitureTypeDropdownArrow =
+        dropdownArrow
+
     furnitureTypeOptionsFrame =
         Instance.new("Frame")
 
     furnitureTypeOptionsFrame.Size =
         UDim2.new(
             1,
-            -6,
+            -2,
             1,
-            -6
+            -2
         )
 
     furnitureTypeOptionsFrame.Position =
         UDim2.fromOffset(
-            3,
-            3
+            1,
+            1
+        )
+
+    furnitureTypeOptionsFrame.BackgroundColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
         )
 
     furnitureTypeOptionsFrame.BackgroundTransparency =
-        1
+        0
+
+    furnitureTypeOptionsFrame.BorderSizePixel =
+        0
 
     furnitureTypeOptionsFrame.ZIndex =
         71
@@ -6634,7 +6761,7 @@ local function createSettingsWindow(
     typeLayout.Padding =
         UDim.new(
             0,
-            2
+            0
         )
 
     typeLayout.SortOrder =
@@ -6643,10 +6770,58 @@ local function createSettingsWindow(
     typeLayout.Parent =
         furnitureTypeOptionsFrame
 
+    local furnitureTypeOptionButtons =
+        {}
+
+    local function updateFurnitureTypeOptionStyles()
+
+        for _, optionButton in ipairs(
+            furnitureTypeOptionButtons
+        ) do
+
+            if not optionButton
+                or not optionButton.Parent then
+
+                continue
+            end
+
+            local isSelected =
+                optionButton.Text ==
+                selectedFurnitureType
+
+            if isSelected then
+
+                optionButton.BackgroundColor3 =
+                    XP.SelectedBlue
+
+                optionButton.TextColor3 =
+                    Color3.fromRGB(
+                        255,
+                        255,
+                        255
+                    )
+
+            else
+
+                optionButton.BackgroundColor3 =
+                    Color3.fromRGB(
+                        255,
+                        255,
+                        255
+                    )
+
+                optionButton.TextColor3 =
+                    XP.Text
+            end
+        end
+    end
+
     local function updateFurnitureTypeDisplay()
 
         furnitureTypeValue.Text =
             selectedFurnitureType
+
+        updateFurnitureTypeOptionStyles()
     end
 
     for index, option in ipairs(
@@ -6661,11 +6836,15 @@ local function createSettingsWindow(
                 1,
                 0,
                 0,
-                33
+                FURNITURE_TYPE_DROPDOWN_OPTION_HEIGHT
             )
 
         optionButton.BackgroundColor3 =
-            XP.ButtonMiddle
+            Color3.fromRGB(
+                255,
+                255,
+                255
+            )
 
         optionButton.BorderSizePixel =
             0
@@ -6680,7 +6859,7 @@ local function createSettingsWindow(
             XP_FONT_UI
 
         optionButton.TextSize =
-            12
+            11
 
         optionButton.TextXAlignment =
             Enum.TextXAlignment.Left
@@ -6700,12 +6879,6 @@ local function createSettingsWindow(
         optionButton.Parent =
             furnitureTypeOptionsFrame
 
-        addStroke(
-            optionButton,
-            XP.BorderDark,
-            1
-        )
-
         local optionPadding =
             Instance.new(
                 "UIPadding"
@@ -6714,62 +6887,66 @@ local function createSettingsWindow(
         optionPadding.PaddingLeft =
             UDim.new(
                 0,
-                8
+                5
+            )
+
+        optionPadding.PaddingRight =
+            UDim.new(
+                0,
+                4
             )
 
         optionPadding.Parent =
             optionButton
 
-        local optionGradient =
-            addGradient(
-                optionButton,
-                XP.ButtonTop,
-                XP.ButtonBottom
-            )
+        table.insert(
+            furnitureTypeOptionButtons,
+            optionButton
+        )
 
         optionButton.MouseEnter:Connect(
             function()
 
-                optionGradient.Color =
-                    ColorSequence.new({
+                optionButton.BackgroundColor3 =
+                    XP.SelectedBlue
 
-                        ColorSequenceKeypoint.new(
-                            0,
-                            Color3.fromRGB(
-                                255,
-                                255,
-                                255
-                            )
-                        ),
-
-                        ColorSequenceKeypoint.new(
-                            1,
-                            Color3.fromRGB(
-                                222,
-                                220,
-                                210
-                            )
-                        )
-                    })
+                optionButton.TextColor3 =
+                    Color3.fromRGB(
+                        255,
+                        255,
+                        255
+                    )
             end
         )
 
         optionButton.MouseLeave:Connect(
             function()
 
-                optionGradient.Color =
-                    ColorSequence.new({
+                if optionButton.Text ==
+                    selectedFurnitureType then
 
-                        ColorSequenceKeypoint.new(
-                            0,
-                            XP.ButtonTop
-                        ),
+                    optionButton.BackgroundColor3 =
+                        XP.SelectedBlue
 
-                        ColorSequenceKeypoint.new(
-                            1,
-                            XP.ButtonBottom
+                    optionButton.TextColor3 =
+                        Color3.fromRGB(
+                            255,
+                            255,
+                            255
                         )
-                    })
+
+                else
+
+                    optionButton.BackgroundColor3 =
+                        Color3.fromRGB(
+                            255,
+                            255,
+                            255
+                        )
+
+                    optionButton.TextColor3 =
+                        XP.Text
+                end
             end
         )
 
@@ -6781,19 +6958,30 @@ local function createSettingsWindow(
 
                 updateFurnitureTypeDisplay()
 
-                furnitureTypeDropdown.Visible =
-                    false
+                closeFurnitureTypeDropdown(
+                    true
+                )
 
                 refreshFurnitureModels()
             end
         )
     end
 
+    updateFurnitureTypeDisplay()
+
     furnitureTypeButton.MouseButton1Click:Connect(
         function()
 
-            furnitureTypeDropdown.Visible =
-                not furnitureTypeDropdown.Visible
+            if furnitureTypeDropdownOpen then
+
+                closeFurnitureTypeDropdown(
+                    true
+                )
+
+            else
+
+                openFurnitureTypeDropdown()
+            end
         end
     )
 
@@ -6859,8 +7047,9 @@ local function createSettingsWindow(
     settingsMinimizeButton.MouseButton1Click:Connect(
         function()
 
-            furnitureTypeDropdown.Visible =
+            closeFurnitureTypeDropdown(
                 false
+            )
 
             if settingsMinimized then
 
@@ -6924,8 +7113,9 @@ local function createSettingsWindow(
     settingsMaximizeButton.MouseButton1Click:Connect(
         function()
 
-            furnitureTypeDropdown.Visible =
+            closeFurnitureTypeDropdown(
                 false
+            )
 
             if settingsMinimized then
                 return
@@ -7010,8 +7200,9 @@ local function createSettingsWindow(
     settingsCloseButton.MouseButton1Click:Connect(
         function()
 
-            furnitureTypeDropdown.Visible =
+            closeFurnitureTypeDropdown(
                 false
+            )
 
             tween(
                 settingsWindow,
@@ -7082,8 +7273,9 @@ local function openSettings()
     settingsMaximized =
         false
 
-    furnitureTypeDropdown.Visible =
+    closeFurnitureTypeDropdown(
         false
+    )
 
     settingsContent.Visible =
         true
@@ -7597,14 +7789,14 @@ local function createMainWindow(
 
     fireIconBox.Size =
         UDim2.fromOffset(
-            26,
-            26
+            30,
+            30
         )
 
     fireIconBox.Position =
         UDim2.fromOffset(
-            7,
-            6
+            5,
+            4
         )
 
     fireIconBox.BackgroundColor3 =
@@ -7627,34 +7819,34 @@ local function createMainWindow(
         firingButton
 
     local fireIcon =
-        Instance.new("TextLabel")
+        Instance.new("ImageLabel")
 
     fireIcon.BackgroundTransparency =
         1
 
     fireIcon.Size =
-        UDim2.fromScale(
-            1,
-            1
+        UDim2.fromOffset(
+            26,
+            26
         )
 
-    fireIcon.Font =
-        XP_FONT_BOLD
+    fireIcon.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
 
-    fireIcon.Text =
-        ">"
+    fireIcon.Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        )
 
-    fireIcon.TextSize =
-        18
+    fireIcon.Image =
+        FIRE_ICON
 
-    fireIcon.TextColor3 =
-        XP.BlueDark
-
-    fireIcon.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    fireIcon.TextYAlignment =
-        Enum.TextYAlignment.Center
+    fireIcon.ScaleType =
+        Enum.ScaleType.Fit
 
     fireIcon.ZIndex =
         8
@@ -7670,7 +7862,7 @@ local function createMainWindow(
 
     fireTitle.Position =
         UDim2.fromOffset(
-            40,
+            41,
             3
         )
 
@@ -7897,14 +8089,14 @@ local function createMainWindow(
 
     targetIconBox.Size =
         UDim2.fromOffset(
-            27,
-            27
+            30,
+            30
         )
 
     targetIconBox.Position =
         UDim2.fromOffset(
-            7,
-            7
+            5,
+            6
         )
 
     targetIconBox.BackgroundColor3 =
@@ -7944,9 +8136,21 @@ local function createMainWindow(
         1
 
     targetIcon.Size =
+        UDim2.fromOffset(
+            26,
+            26
+        )
+
+    targetIcon.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
+
+    targetIcon.Position =
         UDim2.fromScale(
-            1,
-            1
+            0.5,
+            0.5
         )
 
     targetIcon.Image =
@@ -7969,7 +8173,7 @@ local function createMainWindow(
 
     targetTitle.Position =
         UDim2.fromOffset(
-            40,
+            41,
             3
         )
 
@@ -8112,8 +8316,8 @@ local function createMainWindow(
 
     gear.Size =
         UDim2.fromOffset(
-            20,
-            20
+            26,
+            26
         )
 
     gear.AnchorPoint =
@@ -8130,13 +8334,6 @@ local function createMainWindow(
 
     gear.Image =
         GEAR_ICON
-
-    gear.ImageColor3 =
-        Color3.fromRGB(
-            75,
-            75,
-            75
-        )
 
     gear.ScaleType =
         Enum.ScaleType.Fit
@@ -8288,34 +8485,34 @@ local function createMainWindow(
         furnitureButton
 
     local furnitureIcon =
-        Instance.new("TextLabel")
+        Instance.new("ImageLabel")
 
     furnitureIcon.BackgroundTransparency =
         1
 
     furnitureIcon.Size =
-        UDim2.fromScale(
-            1,
-            1
+        UDim2.fromOffset(
+            26,
+            26
         )
 
-    furnitureIcon.Font =
-        XP_FONT_UI_BOLD
+    furnitureIcon.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
 
-    furnitureIcon.Text =
-        "F"
+    furnitureIcon.Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        )
 
-    furnitureIcon.TextSize =
-        13
+    furnitureIcon.Image =
+        FURNITURE_ICON
 
-    furnitureIcon.TextColor3 =
-        XP.BlueDark
-
-    furnitureIcon.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    furnitureIcon.TextYAlignment =
-        Enum.TextYAlignment.Center
+    furnitureIcon.ScaleType =
+        Enum.ScaleType.Fit
 
     furnitureIcon.ZIndex =
         8
