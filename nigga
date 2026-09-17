@@ -7362,26 +7362,19 @@ local function createSettingsWindow(
     local dropdownArrow =
         Instance.new("TextLabel")
 
-    --// XP Luna-style arrow button: pale sky-blue square with dark blue arrow.
+    --// Use the same visual treatment as the Furniture Spawner scrollbar arrows.
+    --// The arrow itself stays completely static; only the dropdown list animates.
     dropdownArrow.BackgroundTransparency =
         0
 
     dropdownArrow.BackgroundColor3 =
-        Color3.fromRGB(
-            216,
-            233,
-            248
-        )
+        XP.ScrollButtonBottom
 
     dropdownArrow.BorderSizePixel =
         1
 
     dropdownArrow.BorderColor3 =
-        Color3.fromRGB(
-            118,
-            149,
-            180
-        )
+        XP.ScrollBorder
 
     dropdownArrow.Size =
         UDim2.fromOffset(
@@ -7398,7 +7391,7 @@ local function createSettingsWindow(
         )
 
     dropdownArrow.Font =
-        Enum.Font.ArialBold
+        XP_FONT_UI_BOLD
 
     dropdownArrow.Text =
         "▼"
@@ -7407,11 +7400,7 @@ local function createSettingsWindow(
         8
 
     dropdownArrow.TextColor3 =
-        Color3.fromRGB(
-            24,
-            78,
-            136
-        )
+        XP.ScrollArrow
 
     dropdownArrow.TextXAlignment =
         Enum.TextXAlignment.Center
@@ -7424,6 +7413,12 @@ local function createSettingsWindow(
 
     dropdownArrow.Parent =
         furnitureTypeButton
+
+    addGradient(
+        dropdownArrow,
+        XP.ScrollButtonTop,
+        XP.ScrollButtonBottom
+    )
 
     addCorner(
         dropdownArrow,
