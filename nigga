@@ -1,6 +1,5 @@
 --// =========================================================
---// SexyBlaster9000 - Windows XP UI
---// UI + local in-game inventory checks
+--// SexyBlaster9000 - Windows XP UI + Equinox Cannon Logic
 --// =========================================================
 
 repeat task.wait() until game:IsLoaded()
@@ -8,12 +7,29 @@ repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
 repeat task.wait() until Players.LocalPlayer
 
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
+
+--// =========================================================
+--// Configuration
+--// =========================================================
+
+local CONFIG = {
+    FIRE_RATE = 0.05,
+    TOOL_NAME = "Equinox Cannon",
+    REMOTE_NAME = "RemoteFunction"
+}
+
+local IGNORE_ENEMIES = {
+    ["Champion of the Equinox"] = true,
+    ["Fiscus"] = true,
+    ["Shellshock"] = true
+}
 
 --// =========================================================
 --// XP Fonts
@@ -52,8 +68,23 @@ local State = {
 
     lastFireTime = 0,
 
+    lastToolEquipTime = 0,
+    toolEquipCooldown = 2,
+
     autoEquip = false
 }
+
+--// =========================================================
+--// Runtime Cache
+--// =========================================================
+
+local cache = {
+    workspaceChildren = {},
+    lastWorkspaceUpdate = 0,
+    workspaceUpdateInterval = 0.5
+}
+
+local recoveryToken = 0
 
 --// =========================================================
 --// Icons
@@ -64,7 +95,6 @@ local TARGET_ICON = "rbxassetid://120660820088276"
 local GEAR_ICON = "rbxassetid://6031280882"
 local ERROR_ICON = "rbxassetid://123302547057574"
 
--- Invisible resize area cursor
 local RESIZE_CURSOR =
     "rbxassetid://118367551438043"
 
@@ -100,15 +130,11 @@ local SETTINGS_MAX_HEIGHT = 360
 --// Error Window
 --// =========================================================
 
--- Smaller XP-style message box.
--- Keeps a clean 2:1 ratio.
 local ERROR_DEFAULT_WIDTH = 360
 local ERROR_DEFAULT_HEIGHT = 180
 
--- How far each additional error cascades.
 local ERROR_STACK_OFFSET_X = 24
 local ERROR_STACK_OFFSET_Y = 24
-
 local ERROR_SCREEN_MARGIN = 20
 
 --// =========================================================
@@ -149,7 +175,6 @@ local XP = {
 
 local gui
 
--- Main
 local mainWindow
 local mainTitleBar
 local mainContent
@@ -169,7 +194,6 @@ local mainMaximizeButton
 local mainCloseButton
 local mainResizeHandle
 
--- Settings
 local settingsWindow
 local settingsTitleBar
 local settingsContent
@@ -211,13 +235,7 @@ local activeErrorWindows = {}
 --// Utility
 --// =========================================================
 
-local function tween(
-    object,
-    properties,
-    duration,
-    style,
-    direction
-)
+local function tween(object, properties, duration, style, direction)
     if not object then
         return nil
     end
@@ -242,64 +260,35 @@ end
 
 local function addCorner(parent, radius)
     local corner = Instance.new("UICorner")
-
-    corner.CornerRadius =
-        UDim.new(0, radius)
-
+    corner.CornerRadius = UDim.new(0, radius)
     corner.Parent = parent
-
     return corner
 end
 
-local function addStroke(
-    parent,
-    color,
-    thickness
-)
+local function addStroke(parent, color, thickness)
     local stroke = Instance.new("UIStroke")
-
     stroke.Color = color
-    stroke.Thickness =
-        thickness or 1
-
-    stroke.ApplyStrokeMode =
-        Enum.ApplyStrokeMode.Border
-
+    stroke.Thickness = thickness or 1
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     stroke.Parent = parent
-
     return stroke
 end
 
-local function addGradient(
-    parent,
-    topColor,
-    bottomColor
-)
-    local gradient =
-        Instance.new("UIGradient")
+local function addGradient(parent, topColor, bottomColor)
+    local gradient = Instance.new("UIGradient")
 
-    gradient.Color =
-        ColorSequence.new({
-            ColorSequenceKeypoint.new(
-                0,
-                topColor
-            ),
-
-            ColorSequenceKeypoint.new(
-                1,
-                bottomColor
-            )
-        })
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, topColor),
+        ColorSequenceKeypoint.new(1, bottomColor)
+    })
 
     gradient.Rotation = 90
-
     gradient.Parent = parent
 
     return gradient
 end
 
 local function safeDestroy(object)
-
     if not object then
         return
     end
@@ -310,16 +299,12 @@ local function safeDestroy(object)
 end
 
 local function setResizeCursor(enabled)
-
     pcall(function()
-
         if enabled then
-            mouse.Icon =
-                RESIZE_CURSOR
+            mouse.Icon = RESIZE_CURSOR
         else
             mouse.Icon = ""
         end
-
     end)
 end
 
@@ -327,48 +312,28 @@ end
 --// XP Button
 --// =========================================================
 
-local function createXPButton(
-    parent,
-    size,
-    position,
-    zIndex,
-    rounded
-)
-
-    local button =
-        Instance.new("TextButton")
+local function createXPButton(parent, size, position, zIndex, rounded)
+    local button = Instance.new("TextButton")
 
     button.Size = size
     button.Position = position
 
-    button.BackgroundColor3 =
-        XP.ButtonMiddle
-
+    button.BackgroundColor3 = XP.ButtonMiddle
     button.BorderSizePixel = 0
 
     button.Text = ""
     button.AutoButtonColor = false
 
-    button.ZIndex =
-        zIndex or 5
-
+    button.ZIndex = zIndex or 5
     button.Parent = parent
 
-    addStroke(
-        button,
-        XP.BorderDark,
-        1
-    )
+    addStroke(button, XP.BorderDark, 1)
 
     if rounded then
-        addCorner(
-            button,
-            3
-        )
+        addCorner(button, 3)
     end
 
-    local highlight =
-        Instance.new("Frame")
+    local highlight = Instance.new("Frame")
 
     highlight.Size =
         UDim2.new(
@@ -384,30 +349,19 @@ local function createXPButton(
             1
         )
 
-    highlight.BackgroundTransparency =
-        1
-
-    highlight.BorderSizePixel =
-        0
+    highlight.BackgroundTransparency = 1
+    highlight.BorderSizePixel = 0
 
     highlight.ZIndex =
         (zIndex or 5) + 1
 
-    highlight.Parent =
-        button
+    highlight.Parent = button
 
     if rounded then
-        addCorner(
-            highlight,
-            2
-        )
+        addCorner(highlight, 2)
     end
 
-    addStroke(
-        highlight,
-        XP.BorderLight,
-        1
-    )
+    addStroke(highlight, XP.BorderLight, 1)
 
     local gradient =
         addGradient(
@@ -416,128 +370,105 @@ local function createXPButton(
             XP.ButtonBottom
         )
 
-    local originalPosition =
-        position
+    local originalPosition = position
 
-    button.MouseEnter:Connect(
-        function()
-
-            if button:GetAttribute(
-                "Pressed"
-            ) then
-                return
-            end
-
-            gradient.Color =
-                ColorSequence.new({
-                    ColorSequenceKeypoint.new(
-                        0,
-                        Color3.fromRGB(
-                            255,
-                            255,
-                            255
-                        )
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        1,
-                        Color3.fromRGB(
-                            225,
-                            223,
-                            211
-                        )
-                    )
-                })
+    button.MouseEnter:Connect(function()
+        if button:GetAttribute("Pressed") then
+            return
         end
-    )
 
-    button.MouseLeave:Connect(
-        function()
-
-            if button:GetAttribute(
-                "Pressed"
-            ) then
-                return
-            end
-
-            gradient.Color =
-                ColorSequence.new({
-                    ColorSequenceKeypoint.new(
-                        0,
-                        XP.ButtonTop
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        1,
-                        XP.ButtonBottom
+        gradient.Color =
+            ColorSequence.new({
+                ColorSequenceKeypoint.new(
+                    0,
+                    Color3.fromRGB(
+                        255,
+                        255,
+                        255
                     )
-                })
-        end
-    )
+                ),
 
-    button.MouseButton1Down:Connect(
-        function()
-
-            button:SetAttribute(
-                "Pressed",
-                true
-            )
-
-            gradient.Color =
-                ColorSequence.new({
-                    ColorSequenceKeypoint.new(
-                        0,
-                        Color3.fromRGB(
-                            205,
-                            202,
-                            190
-                        )
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        1,
-                        Color3.fromRGB(
-                            238,
-                            235,
-                            222
-                        )
-                    )
-                })
-
-            button.Position =
-                originalPosition +
-                UDim2.fromOffset(
+                ColorSequenceKeypoint.new(
                     1,
-                    1
-                )
-        end
-    )
-
-    button.MouseButton1Up:Connect(
-        function()
-
-            button:SetAttribute(
-                "Pressed",
-                false
-            )
-
-            button.Position =
-                originalPosition
-
-            gradient.Color =
-                ColorSequence.new({
-                    ColorSequenceKeypoint.new(
-                        0,
-                        XP.ButtonTop
-                    ),
-
-                    ColorSequenceKeypoint.new(
-                        1,
-                        XP.ButtonBottom
+                    Color3.fromRGB(
+                        225,
+                        223,
+                        211
                     )
-                })
+                )
+            })
+    end)
+
+    button.MouseLeave:Connect(function()
+        if button:GetAttribute("Pressed") then
+            return
         end
-    )
+
+        gradient.Color =
+            ColorSequence.new({
+                ColorSequenceKeypoint.new(
+                    0,
+                    XP.ButtonTop
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    XP.ButtonBottom
+                )
+            })
+    end)
+
+    button.MouseButton1Down:Connect(function()
+        button:SetAttribute("Pressed", true)
+
+        gradient.Color =
+            ColorSequence.new({
+                ColorSequenceKeypoint.new(
+                    0,
+                    Color3.fromRGB(
+                        205,
+                        202,
+                        190
+                    )
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    Color3.fromRGB(
+                        238,
+                        235,
+                        222
+                    )
+                )
+            })
+
+        button.Position =
+            originalPosition +
+            UDim2.fromOffset(
+                1,
+                1
+            )
+    end)
+
+    button.MouseButton1Up:Connect(function()
+        button:SetAttribute("Pressed", false)
+
+        button.Position =
+            originalPosition
+
+        gradient.Color =
+            ColorSequence.new({
+                ColorSequenceKeypoint.new(
+                    0,
+                    XP.ButtonTop
+                ),
+
+                ColorSequenceKeypoint.new(
+                    1,
+                    XP.ButtonBottom
+                )
+            })
+    end)
 
     return button
 end
@@ -546,36 +477,18 @@ end
 --// XP Icon
 --// =========================================================
 
-local function createXPImage(
-    parent,
-    position,
-    size,
-    zIndex
-)
+local function createXPImage(parent, position, size, zIndex)
+    local image = Instance.new("ImageLabel")
 
-    local image =
-        Instance.new("ImageLabel")
+    image.BackgroundTransparency = 1
+    image.Position = position
+    image.Size = size
 
-    image.BackgroundTransparency =
-        1
+    image.Image = XP_ICON
+    image.ScaleType = Enum.ScaleType.Fit
 
-    image.Position =
-        position
-
-    image.Size =
-        size
-
-    image.Image =
-        XP_ICON
-
-    image.ScaleType =
-        Enum.ScaleType.Fit
-
-    image.ZIndex =
-        zIndex or 5
-
-    image.Parent =
-        parent
+    image.ZIndex = zIndex or 5
+    image.Parent = parent
 
     local aspect =
         Instance.new(
@@ -583,14 +496,1274 @@ local function createXPImage(
         )
 
     aspect.AspectRatio = 1
-
     aspect.DominantAxis =
         Enum.DominantAxis.Height
 
-    aspect.Parent =
-        image
+    aspect.Parent = image
 
     return image
+end
+
+--// =========================================================
+--// Player / Tool Functions
+--// =========================================================
+
+local function isPlayerAlive()
+    if not player.Character then
+        return false
+    end
+
+    local humanoid =
+        player.Character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid then
+        return false
+    end
+
+    return humanoid.Health > 0
+end
+
+local function hasEquinoxCannon()
+    local character =
+        player.Character
+
+    if character then
+        local equippedTool =
+            character:FindFirstChild(
+                CONFIG.TOOL_NAME
+            )
+
+        if equippedTool
+            and equippedTool:IsA("Tool") then
+
+            return true
+        end
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    if backpack then
+        local inventoryTool =
+            backpack:FindFirstChild(
+                CONFIG.TOOL_NAME
+            )
+
+        if inventoryTool
+            and inventoryTool:IsA("Tool") then
+
+            return true
+        end
+    end
+
+    return false
+end
+
+local function autoEquipTool()
+    if not State.autoEquip
+        or not State.isRunning
+        or not State.playerAlive then
+
+        return false
+    end
+
+    local now = tick()
+
+    if now - State.lastToolEquipTime
+        < State.toolEquipCooldown then
+
+        return false
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        return false
+    end
+
+    local humanoid =
+        character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid then
+        return false
+    end
+
+    local equippedTool =
+        character:FindFirstChild(
+            CONFIG.TOOL_NAME
+        )
+
+    if equippedTool
+        and equippedTool:IsA("Tool") then
+
+        State.lastToolEquipTime = now
+
+        return true
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    if not backpack then
+        return false
+    end
+
+    local tool =
+        backpack:FindFirstChild(
+            CONFIG.TOOL_NAME
+        )
+
+    if not tool
+        or not tool:IsA("Tool") then
+
+        return false
+    end
+
+    pcall(function()
+        humanoid:EquipTool(tool)
+    end)
+
+    task.wait(0.1)
+
+    State.lastToolEquipTime = now
+
+    return true
+end
+
+--// =========================================================
+--// Target Detection
+--// =========================================================
+
+local function getTargetPart(model)
+    local possibleParts = {
+        "HumanoidRootPart",
+        "Head",
+        "Torso",
+        "UpperTorso",
+        "LowerTorso",
+        "Chest",
+        "Body"
+    }
+
+    for _, partName in ipairs(possibleParts) do
+        local part =
+            model:FindFirstChild(
+                partName
+            )
+
+        if part
+            and part:IsA("BasePart") then
+
+            return part
+        end
+    end
+
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("BasePart") then
+            return child
+        end
+    end
+
+    return nil
+end
+
+local function isPlayerCharacter(model)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character == model then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function findEnemies()
+    if not State.playerAlive
+        or not State.shootingEnabled then
+
+        return {}
+    end
+
+    local now = tick()
+
+    if now - cache.lastWorkspaceUpdate
+        > cache.workspaceUpdateInterval then
+
+        cache.workspaceChildren =
+            workspace:GetChildren()
+
+        cache.lastWorkspaceUpdate = now
+    end
+
+    local enemies = {}
+
+    for _, model in ipairs(cache.workspaceChildren) do
+
+        if model:IsA("Model")
+            and model.Parent == workspace then
+
+            local humanoid =
+                model:FindFirstChildOfClass(
+                    "Humanoid"
+                )
+
+            if humanoid
+                and humanoid.Health > 0 then
+
+                if IGNORE_ENEMIES[model.Name] then
+                    continue
+                end
+
+                if not isPlayerCharacter(model) then
+
+                    local targetPart =
+                        getTargetPart(model)
+
+                    if targetPart then
+
+                        table.insert(
+                            enemies,
+                            {
+                                Model = model,
+                                Humanoid = humanoid,
+                                TargetPart = targetPart,
+                                Position = targetPart.Position,
+                                Name = model.Name
+                            }
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    return enemies
+end
+
+local function selectTarget()
+    if not State.playerAlive
+        or not State.shootingEnabled then
+
+        return nil
+    end
+
+    local enemies =
+        findEnemies()
+
+    if #enemies == 0 then
+        return nil
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        return enemies[1]
+    end
+
+    local humanoidRootPart =
+        character:FindFirstChild(
+            "HumanoidRootPart"
+        )
+
+    if not humanoidRootPart then
+        return enemies[1]
+    end
+
+    local playerPos =
+        humanoidRootPart.Position
+
+    local closestEnemy =
+        enemies[1]
+
+    local closestDistance =
+        math.huge
+
+    for _, enemy in ipairs(enemies) do
+
+        if enemy.TargetPart
+            and enemy.TargetPart.Parent then
+
+            local distance =
+                (
+                    enemy.Position -
+                    playerPos
+                ).Magnitude
+
+            if distance <
+                closestDistance then
+
+                closestDistance =
+                    distance
+
+                closestEnemy =
+                    enemy
+            end
+        end
+    end
+
+    return closestEnemy
+end
+
+--// =========================================================
+--// Tool / Remote Validation
+--// =========================================================
+
+local function getValidTool()
+    if not State.playerAlive
+        or not State.shootingEnabled then
+
+        return nil
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        return nil
+    end
+
+    local tool =
+        character:FindFirstChild(
+            CONFIG.TOOL_NAME
+        )
+
+    if not tool
+        or not tool:IsA("Tool") then
+
+        return nil
+    end
+
+    local remote =
+        tool:FindFirstChild(
+            CONFIG.REMOTE_NAME
+        )
+
+    local handle =
+        tool:FindFirstChild(
+            "Handle"
+        )
+
+    if remote
+        and handle
+        and remote:IsA("RemoteFunction") then
+
+        return {
+            Tool = tool,
+            Remote = remote,
+            Handle = handle
+        }
+    end
+
+    return nil
+end
+
+--// =========================================================
+--// Fire Logic
+--// =========================================================
+
+local function attemptFire()
+    if not State.isRunning then
+        return
+    end
+
+    if not State.playerAlive
+        or not State.shootingEnabled then
+
+        return
+    end
+
+    if not State.currentTarget then
+        return
+    end
+
+    local toolData =
+        getValidTool()
+
+    if not toolData then
+
+        State.shootingErrors =
+            State.shootingErrors + 1
+
+        return
+    end
+
+    local now = tick()
+
+    if now - State.lastFireTime
+        < CONFIG.FIRE_RATE then
+
+        return
+    end
+
+    State.lastFireTime = now
+
+    local targetPart =
+        State.currentTarget.TargetPart
+
+    if not targetPart
+        or not targetPart.Parent then
+
+        return
+    end
+
+    local targetPos =
+        targetPart.Position
+
+    local camera =
+        workspace.CurrentCamera
+
+    if not camera then
+        return
+    end
+
+    local cameraPosition =
+        camera.CFrame.Position
+
+    local difference =
+        targetPos -
+        cameraPosition
+
+    if difference.Magnitude <= 0 then
+        return
+    end
+
+    local direction =
+        difference.Unit
+
+    local startPos =
+        targetPos -
+        (direction * 5)
+
+    local endPos =
+        targetPos
+
+    local fireSuccess =
+        pcall(function()
+
+            toolData.Remote:InvokeServer(
+                "fire",
+                {
+                    startPos,
+                    endPos,
+                    State.chargeValue
+                }
+            )
+        end)
+
+    if not fireSuccess then
+
+        State.shootingErrors =
+            State.shootingErrors + 1
+
+        if State.shootingErrors >
+            State.maxShootingErrors then
+
+            State.shootingEnabled = false
+
+            recoveryToken =
+                recoveryToken + 1
+
+            local currentToken =
+                recoveryToken
+
+            task.delay(
+                3,
+                function()
+
+                    if currentToken ~=
+                        recoveryToken then
+
+                        return
+                    end
+
+                    if State.isRunning
+                        and State.playerAlive then
+
+                        State.shootingErrors = 0
+                        State.shootingEnabled = true
+                    end
+                end
+            )
+        end
+    else
+
+        State.shootingErrors = 0
+    end
+end
+
+--// =========================================================
+--// Status UI
+--// =========================================================
+
+local function updateStatus()
+    if not statusValue
+        or not statusDot then
+
+        return
+    end
+
+    if State.isRunning
+        and State.shootingEnabled then
+
+        statusValue.Text = "ON"
+
+        statusValue.TextColor3 =
+            XP.GreenDark
+
+        statusDot.BackgroundColor3 =
+            XP.Green
+
+        statusDot.BorderColor3 =
+            XP.GreenDark
+
+    elseif State.isRunning then
+
+        statusValue.Text = "PAUSED"
+
+        statusValue.TextColor3 =
+            XP.BlueDark
+
+        statusDot.BackgroundColor3 =
+            XP.Blue
+
+        statusDot.BorderColor3 =
+            XP.BlueDark
+
+    else
+
+        statusValue.Text = "OFF"
+
+        statusValue.TextColor3 =
+            XP.RedDark
+
+        statusDot.BackgroundColor3 =
+            XP.Red
+
+        statusDot.BorderColor3 =
+            XP.RedDark
+    end
+end
+
+local function updateTarget()
+    if not targetValue then
+        return
+    end
+
+    local targetName =
+        State.currentTargetName
+
+    if not targetName
+        or targetName == "" then
+
+        targetName = "None"
+    end
+
+    targetValue.Text =
+        targetName
+end
+
+local function updateAutoEquip()
+    if not autoEquipCheck then
+        return
+    end
+
+    autoEquipCheck.Visible =
+        State.autoEquip == true
+end
+
+--// =========================================================
+--// Error Stack Position
+--// =========================================================
+
+local function getErrorStackPosition(stackIndex)
+
+    local camera =
+        workspace.CurrentCamera
+
+    local viewport =
+        camera
+        and camera.ViewportSize
+        or Vector2.new(
+            1920,
+            1080
+        )
+
+    local width =
+        ERROR_DEFAULT_WIDTH
+
+    local height =
+        ERROR_DEFAULT_HEIGHT
+
+    local centerX =
+        (viewport.X - width) / 2
+
+    local centerY =
+        (viewport.Y - height) / 2
+
+    local offsetIndex =
+        stackIndex - 1
+
+    local x =
+        centerX +
+        (
+            offsetIndex *
+            ERROR_STACK_OFFSET_X
+        )
+
+    local y =
+        centerY +
+        (
+            offsetIndex *
+            ERROR_STACK_OFFSET_Y
+        )
+
+    local maxX =
+        viewport.X -
+        width -
+        ERROR_SCREEN_MARGIN
+
+    local maxY =
+        viewport.Y -
+        height -
+        ERROR_SCREEN_MARGIN
+
+    x =
+        math.clamp(
+            x,
+            ERROR_SCREEN_MARGIN,
+            math.max(
+                ERROR_SCREEN_MARGIN,
+                maxX
+            )
+        )
+
+    y =
+        math.clamp(
+            y,
+            ERROR_SCREEN_MARGIN,
+            math.max(
+                ERROR_SCREEN_MARGIN,
+                maxY
+            )
+        )
+
+    return UDim2.fromOffset(
+        x,
+        y
+    )
+end
+
+--// =========================================================
+--// Error Window
+--// =========================================================
+
+local function createErrorWindow()
+
+    local stackIndex =
+        #activeErrorWindows + 1
+
+    local errorWindow =
+        Instance.new("Frame")
+
+    errorWindow.Name =
+        "ErrorWindow_" ..
+        tostring(
+            os.clock()
+        )
+
+    errorWindow.Size =
+        UDim2.fromOffset(
+            ERROR_DEFAULT_WIDTH,
+            ERROR_DEFAULT_HEIGHT
+        )
+
+    errorWindow.Position =
+        getErrorStackPosition(
+            stackIndex
+        )
+
+    errorWindow.BackgroundColor3 =
+        XP.WindowOuter
+
+    errorWindow.BorderSizePixel = 0
+    errorWindow.ClipsDescendants = true
+
+    errorWindow.ZIndex =
+        100 +
+        stackIndex
+
+    errorWindow.Parent =
+        gui
+
+    addCorner(
+        errorWindow,
+        7
+    )
+
+    addStroke(
+        errorWindow,
+        XP.TitleBlueDark,
+        2
+    )
+
+    local errorTitleBar =
+        Instance.new("Frame")
+
+    errorTitleBar.Size =
+        UDim2.new(
+            1,
+            -4,
+            0,
+            27
+        )
+
+    errorTitleBar.Position =
+        UDim2.fromOffset(
+            2,
+            2
+        )
+
+    errorTitleBar.BackgroundColor3 =
+        XP.TitleBlueTop
+
+    errorTitleBar.BorderSizePixel = 0
+
+    errorTitleBar.ZIndex =
+        errorWindow.ZIndex + 1
+
+    errorTitleBar.Parent =
+        errorWindow
+
+    addCorner(
+        errorTitleBar,
+        6
+    )
+
+    addGradient(
+        errorTitleBar,
+        XP.TitleBlueTop,
+        XP.TitleBlueBottom
+    )
+
+    local titleCover =
+        Instance.new("Frame")
+
+    titleCover.Size =
+        UDim2.new(
+            1,
+            0,
+            0,
+            7
+        )
+
+    titleCover.Position =
+        UDim2.new(
+            0,
+            0,
+            1,
+            -7
+        )
+
+    titleCover.BackgroundColor3 =
+        XP.TitleBlueBottom
+
+    titleCover.BorderSizePixel = 0
+
+    titleCover.ZIndex =
+        errorTitleBar.ZIndex
+
+    titleCover.Parent =
+        errorTitleBar
+
+    local errorTitle =
+        Instance.new("TextLabel")
+
+    errorTitle.BackgroundTransparency = 1
+
+    errorTitle.Position =
+        UDim2.fromOffset(
+            7,
+            1
+        )
+
+    errorTitle.Size =
+        UDim2.new(
+            1,
+            -40,
+            1,
+            -2
+        )
+
+    errorTitle.Font =
+        XP_FONT_BOLD
+
+    errorTitle.Text =
+        "Error"
+
+    errorTitle.TextSize = 12
+
+    errorTitle.TextColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    errorTitle.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    errorTitle.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    errorTitle.ZIndex =
+        errorWindow.ZIndex + 5
+
+    errorTitle.Parent =
+        errorTitleBar
+
+    local closeButton =
+        createXPButton(
+            errorTitleBar,
+            UDim2.fromOffset(
+                20,
+                19
+            ),
+            UDim2.new(
+                1,
+                -22,
+                0,
+                4
+            ),
+            errorWindow.ZIndex + 5,
+            true
+        )
+
+    closeButton.BackgroundColor3 =
+        Color3.fromRGB(
+            215,
+            70,
+            63
+        )
+
+    local closeText =
+        Instance.new("TextLabel")
+
+    closeText.BackgroundTransparency = 1
+    closeText.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    closeText.Font =
+        XP_FONT_BOLD
+
+    closeText.Text =
+        "×"
+
+    closeText.TextSize =
+        15
+
+    closeText.TextColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    closeText.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    closeText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    closeText.ZIndex =
+        errorWindow.ZIndex + 8
+
+    closeText.Parent =
+        closeButton
+
+    local errorContent =
+        Instance.new("Frame")
+
+    errorContent.Size =
+        UDim2.new(
+            1,
+            -16,
+            1,
+            -39
+        )
+
+    errorContent.Position =
+        UDim2.fromOffset(
+            8,
+            34
+        )
+
+    errorContent.BackgroundTransparency = 1
+
+    errorContent.ZIndex =
+        errorWindow.ZIndex + 1
+
+    errorContent.Parent =
+        errorWindow
+
+    local errorIcon =
+        Instance.new("ImageLabel")
+
+    errorIcon.BackgroundTransparency = 1
+
+    errorIcon.Size =
+        UDim2.fromOffset(
+            86,
+            86
+        )
+
+    errorIcon.Position =
+        UDim2.fromOffset(
+            10,
+            14
+        )
+
+    errorIcon.Image =
+        ERROR_ICON
+
+    errorIcon.ScaleType =
+        Enum.ScaleType.Fit
+
+    errorIcon.ZIndex =
+        errorWindow.ZIndex + 3
+
+    errorIcon.Parent =
+        errorContent
+
+    local iconAspect =
+        Instance.new(
+            "UIAspectRatioConstraint"
+        )
+
+    iconAspect.AspectRatio = 1
+    iconAspect.DominantAxis =
+        Enum.DominantAxis.Width
+
+    iconAspect.Parent =
+        errorIcon
+
+    local errorText =
+        Instance.new("TextLabel")
+
+    errorText.BackgroundTransparency = 1
+
+    errorText.Position =
+        UDim2.fromOffset(
+            108,
+            18
+        )
+
+    errorText.Size =
+        UDim2.new(
+            1,
+            -116,
+            0,
+            60
+        )
+
+    errorText.Font =
+        XP_FONT
+
+    errorText.Text =
+        "Equinox Cannon was not found in your inventory."
+
+    errorText.TextSize = 12
+    errorText.TextColor3 =
+        XP.Text
+
+    errorText.TextWrapped = true
+
+    errorText.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    errorText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    errorText.ZIndex =
+        errorWindow.ZIndex + 3
+
+    errorText.Parent =
+        errorContent
+
+    local okButton =
+        createXPButton(
+            errorContent,
+            UDim2.fromOffset(
+                75,
+                27
+            ),
+            UDim2.new(
+                1,
+                -83,
+                1,
+                -35
+            ),
+            errorWindow.ZIndex + 4,
+            true
+        )
+
+    local okText =
+        Instance.new("TextLabel")
+
+    okText.BackgroundTransparency = 1
+
+    okText.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    okText.Font =
+        XP_FONT
+
+    okText.Text =
+        "OK"
+
+    okText.TextSize = 11
+
+    okText.TextColor3 =
+        XP.Text
+
+    okText.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    okText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    okText.ZIndex =
+        errorWindow.ZIndex + 8
+
+    okText.Parent =
+        okButton
+
+    local dragging = false
+    local dragStart
+    local startPosition
+
+    errorTitleBar.InputBegan:Connect(
+        function(input)
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            dragging = true
+
+            dragStart =
+                input.Position
+
+            startPosition =
+                errorWindow.Position
+        end
+    )
+
+    errorTitleBar.InputEnded:Connect(
+        function(input)
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            dragging = false
+        end
+    )
+
+    UserInputService.InputChanged:Connect(
+        function(input)
+
+            if not dragging then
+                return
+            end
+
+            if input.UserInputType
+                ~= Enum.UserInputType.MouseMovement
+                and input.UserInputType
+                ~= Enum.UserInputType.Touch then
+
+                return
+            end
+
+            local delta =
+                input.Position -
+                dragStart
+
+            errorWindow.Position =
+                UDim2.new(
+                    startPosition.X.Scale,
+                    startPosition.X.Offset +
+                        delta.X,
+
+                    startPosition.Y.Scale,
+                    startPosition.Y.Offset +
+                        delta.Y
+                )
+        end
+    )
+
+    local function closeError()
+
+        local currentIndex
+
+        for index, data in ipairs(
+            activeErrorWindows
+        ) do
+
+            if data.window ==
+                errorWindow then
+
+                currentIndex = index
+
+                break
+            end
+        end
+
+        if currentIndex then
+            table.remove(
+                activeErrorWindows,
+                currentIndex
+            )
+        end
+
+        local closePosition =
+            errorWindow.Position
+
+        tween(
+            errorWindow,
+            {
+                Size =
+                    UDim2.fromOffset(
+                        0,
+                        0
+                    ),
+
+                Position =
+                    UDim2.fromOffset(
+                        closePosition.X.Offset + 15,
+                        closePosition.Y.Offset + 15
+                    )
+            },
+            0.22,
+            Enum.EasingStyle.Back,
+            Enum.EasingDirection.In
+        )
+
+        task.delay(
+            0.24,
+            function()
+
+                safeDestroy(
+                    errorWindow
+                )
+
+                for index, data in ipairs(
+                    activeErrorWindows
+                ) do
+
+                    if data.window
+                        and data.window.Parent then
+
+                        tween(
+                            data.window,
+                            {
+                                Position =
+                                    getErrorStackPosition(
+                                        index
+                                    )
+                            },
+                            0.25,
+                            Enum.EasingStyle.Quad,
+                            Enum.EasingDirection.Out
+                        )
+                    end
+                end
+            end
+        )
+    end
+
+    closeButton.MouseButton1Click:Connect(
+        closeError
+    )
+
+    okButton.MouseButton1Click:Connect(
+        closeError
+    )
+
+    table.insert(
+        activeErrorWindows,
+        {
+            window = errorWindow
+        }
+    )
+
+    local targetPosition =
+        errorWindow.Position
+
+    errorWindow.Position =
+        UDim2.fromOffset(
+            targetPosition.X.Offset + 20,
+            targetPosition.Y.Offset + 20
+        )
+
+    errorWindow.Size =
+        UDim2.fromOffset(
+            ERROR_DEFAULT_WIDTH - 30,
+            ERROR_DEFAULT_HEIGHT - 25
+        )
+
+    tween(
+        errorWindow,
+        {
+            Position =
+                targetPosition,
+
+            Size =
+                UDim2.fromOffset(
+                    ERROR_DEFAULT_WIDTH,
+                    ERROR_DEFAULT_HEIGHT
+                )
+        },
+        0.36,
+        Enum.EasingStyle.Back,
+        Enum.EasingDirection.Out
+    )
+
+    return errorWindow
+end
+
+local function showCannonMissingError()
+
+    if not gui
+        or guiClosed then
+
+        return
+    end
+
+    return createErrorWindow()
 end
 
 --// =========================================================
@@ -699,7 +1872,6 @@ end
 
 --// =========================================================
 --// Resizing
---// Invisible resize handles
 --// =========================================================
 
 local function enableResizing(
@@ -717,7 +1889,6 @@ local function enableResizing(
     local resizeStart
     local resizeStartSize
 
-    -- Invisible handle, cursor appears only on hover.
     handle.MouseEnter:Connect(
         function()
 
@@ -806,7 +1977,6 @@ local function enableResizing(
                 math.clamp(
                     resizeStartSize.X +
                         delta.X,
-
                     minWidth,
                     maxWidth
                 )
@@ -815,7 +1985,6 @@ local function enableResizing(
                 math.clamp(
                     resizeStartSize.Y +
                         delta.Y,
-
                     minHeight,
                     maxHeight
                 )
@@ -861,825 +2030,6 @@ local function enableResizing(
 end
 
 --// =========================================================
---// Live in-game inventory check
---// =========================================================
-
-local function hasEquinoxCannon()
-
-    -- Equipped tool
-    local character =
-        player.Character
-
-    if character then
-
-        local equippedTool =
-            character:FindFirstChild(
-                "Equinox Cannon"
-            )
-
-        if equippedTool
-            and equippedTool:IsA("Tool") then
-
-            return true
-        end
-    end
-
-    -- Backpack inventory
-    local backpack =
-        player:FindFirstChildOfClass(
-            "Backpack"
-        )
-
-    if backpack then
-
-        local inventoryTool =
-            backpack:FindFirstChild(
-                "Equinox Cannon"
-            )
-
-        if inventoryTool
-            and inventoryTool:IsA("Tool") then
-
-            return true
-        end
-    end
-
-    return false
-end
-
---// =========================================================
---// State Helpers
---// =========================================================
-
-local function isPlayerAlive()
-
-    if not player.Character then
-        return false
-    end
-
-    local humanoid =
-        player.Character:FindFirstChildOfClass(
-            "Humanoid"
-        )
-
-    if not humanoid then
-        return false
-    end
-
-    return humanoid.Health > 0
-end
-
-local function updateStatus()
-
-    if not statusValue
-        or not statusDot then
-
-        return
-    end
-
-    if State.isRunning then
-
-        statusValue.Text = "ON"
-
-        statusValue.TextColor3 =
-            XP.GreenDark
-
-        statusDot.BackgroundColor3 =
-            XP.Green
-
-        statusDot.BorderColor3 =
-            XP.GreenDark
-
-    else
-
-        statusValue.Text = "OFF"
-
-        statusValue.TextColor3 =
-            XP.RedDark
-
-        statusDot.BackgroundColor3 =
-            XP.Red
-
-        statusDot.BorderColor3 =
-            XP.RedDark
-    end
-end
-
-local function updateTarget()
-
-    if not targetValue then
-        return
-    end
-
-    local targetName =
-        State.currentTargetName
-
-    if not targetName
-        or targetName == "" then
-
-        targetName = "None"
-    end
-
-    targetValue.Text =
-        targetName
-end
-
-local function updateAutoEquip()
-
-    if not autoEquipCheck then
-        return
-    end
-
-    autoEquipCheck.Visible =
-        State.autoEquip == true
-end
-
---// =========================================================
---// Error stack position
---//
---// First error = centered.
---// Each additional error cascades down/right.
---// When the screen edge is reached, it stays clamped.
---// =========================================================
-
-local function getErrorStackPosition(stackIndex)
-
-    local camera =
-        workspace.CurrentCamera
-
-    local viewport =
-        camera
-        and camera.ViewportSize
-        or Vector2.new(
-            1920,
-            1080
-        )
-
-    local width =
-        ERROR_DEFAULT_WIDTH
-
-    local height =
-        ERROR_DEFAULT_HEIGHT
-
-    -- First window opens in the exact center.
-    local centerX =
-        (viewport.X - width) / 2
-
-    local centerY =
-        (viewport.Y - height) / 2
-
-    local offsetIndex =
-        stackIndex - 1
-
-    local x =
-        centerX +
-        (
-            offsetIndex *
-            ERROR_STACK_OFFSET_X
-        )
-
-    local y =
-        centerY +
-        (
-            offsetIndex *
-            ERROR_STACK_OFFSET_Y
-        )
-
-    -- Clamp toward bottom-right once
-    -- the normal cascade reaches the edge.
-    local maxX =
-        viewport.X -
-        width -
-        ERROR_SCREEN_MARGIN
-
-    local maxY =
-        viewport.Y -
-        height -
-        ERROR_SCREEN_MARGIN
-
-    x =
-        math.clamp(
-            x,
-            ERROR_SCREEN_MARGIN,
-            math.max(
-                ERROR_SCREEN_MARGIN,
-                maxX
-            )
-        )
-
-    y =
-        math.clamp(
-            y,
-            ERROR_SCREEN_MARGIN,
-            math.max(
-                ERROR_SCREEN_MARGIN,
-                maxY
-            )
-        )
-
-    return UDim2.fromOffset(
-        x,
-        y
-    )
-end
-
---// =========================================================
---// Error Window
---// =========================================================
-
-local function createErrorWindow()
-
-    local stackIndex =
-        #activeErrorWindows + 1
-
-    local errorWindow =
-        Instance.new("Frame")
-
-    errorWindow.Name =
-        "ErrorWindow_" ..
-        tostring(
-            os.clock()
-        )
-
-    errorWindow.Size =
-        UDim2.fromOffset(
-            ERROR_DEFAULT_WIDTH,
-            ERROR_DEFAULT_HEIGHT
-        )
-
-    errorWindow.Position =
-        getErrorStackPosition(
-            stackIndex
-        )
-
-    errorWindow.BackgroundColor3 =
-        XP.WindowOuter
-
-    errorWindow.BorderSizePixel = 0
-
-    errorWindow.ClipsDescendants =
-        true
-
-    errorWindow.ZIndex =
-        100 +
-        stackIndex
-
-    errorWindow.Parent =
-        gui
-
-    addCorner(
-        errorWindow,
-        7
-    )
-
-    addStroke(
-        errorWindow,
-        XP.TitleBlueDark,
-        2
-    )
-
-    --=========================================================
-    -- Error title bar
-    --=========================================================
-
-    local errorTitleBar =
-        Instance.new("Frame")
-
-    errorTitleBar.Size =
-        UDim2.new(
-            1,
-            -4,
-            0,
-            27
-        )
-
-    errorTitleBar.Position =
-        UDim2.fromOffset(
-            2,
-            2
-        )
-
-    errorTitleBar.BackgroundColor3 =
-        XP.TitleBlueTop
-
-    errorTitleBar.BorderSizePixel = 0
-
-    errorTitleBar.ZIndex =
-        errorWindow.ZIndex + 1
-
-    errorTitleBar.Parent =
-        errorWindow
-
-    addCorner(
-        errorTitleBar,
-        6
-    )
-
-    addGradient(
-        errorTitleBar,
-        XP.TitleBlueTop,
-        XP.TitleBlueBottom
-    )
-
-    local titleCover =
-        Instance.new("Frame")
-
-    titleCover.Size =
-        UDim2.new(
-            1,
-            0,
-            0,
-            7
-        )
-
-    titleCover.Position =
-        UDim2.new(
-            0,
-            0,
-            1,
-            -7
-        )
-
-    titleCover.BackgroundColor3 =
-        XP.TitleBlueBottom
-
-    titleCover.BorderSizePixel = 0
-
-    titleCover.ZIndex =
-        errorTitleBar.ZIndex
-
-    titleCover.Parent =
-        errorTitleBar
-
-    --=========================================================
-    -- Error title
-    --=========================================================
-
-    local errorTitle =
-        Instance.new("TextLabel")
-
-    errorTitle.BackgroundTransparency =
-        1
-
-    errorTitle.Position =
-        UDim2.fromOffset(
-            7,
-            1
-        )
-
-    errorTitle.Size =
-        UDim2.new(
-            1,
-            -40,
-            1,
-            -2
-        )
-
-    errorTitle.Font =
-        XP_FONT_BOLD
-
-    errorTitle.Text =
-        "Error"
-
-    errorTitle.TextSize = 12
-
-    errorTitle.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    errorTitle.TextXAlignment =
-        Enum.TextXAlignment.Left
-
-    errorTitle.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    errorTitle.ZIndex =
-        errorWindow.ZIndex + 5
-
-    errorTitle.Parent =
-        errorTitleBar
-
-    --=========================================================
-    -- EXACT SAME X BUTTON AS MAIN GUI
-    --=========================================================
-
-    local closeButton =
-        createXPButton(
-            errorTitleBar,
-            UDim2.fromOffset(
-                20,
-                19
-            ),
-            UDim2.new(
-                1,
-                -22,
-                0,
-                4
-            ),
-            errorWindow.ZIndex + 5,
-            true
-        )
-
-    closeButton.BackgroundColor3 =
-        Color3.fromRGB(
-            215,
-            70,
-            63
-        )
-
-    local closeText =
-        Instance.new("TextLabel")
-
-    closeText.BackgroundTransparency =
-        1
-
-    closeText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    closeText.Font =
-        XP_FONT_BOLD
-
-    closeText.Text =
-        "×"
-
-    closeText.TextSize =
-        15
-
-    closeText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    closeText.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    closeText.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    closeText.ZIndex =
-        errorWindow.ZIndex + 8
-
-    closeText.Parent =
-        closeButton
-
-    --=========================================================
-    -- Error content
-    --=========================================================
-
-    local errorContent =
-        Instance.new("Frame")
-
-    errorContent.Size =
-        UDim2.new(
-            1,
-            -16,
-            1,
-            -39
-        )
-
-    errorContent.Position =
-        UDim2.fromOffset(
-            8,
-            34
-        )
-
-    errorContent.BackgroundTransparency =
-        1
-
-    errorContent.ZIndex =
-        errorWindow.ZIndex + 1
-
-    errorContent.Parent =
-        errorWindow
-
-    --=========================================================
-    -- Large transparent error icon
-    --=========================================================
-
-    local errorIcon =
-        Instance.new("ImageLabel")
-
-    errorIcon.BackgroundTransparency =
-        1
-
-    -- Large enough to match the intended
-    -- classic XP message-box appearance.
-    errorIcon.Size =
-        UDim2.fromOffset(
-            86,
-            86
-        )
-
-    errorIcon.Position =
-        UDim2.fromOffset(
-            10,
-            14
-        )
-
-    errorIcon.Image =
-        ERROR_ICON
-
-    errorIcon.ScaleType =
-        Enum.ScaleType.Fit
-
-    errorIcon.ZIndex =
-        errorWindow.ZIndex + 3
-
-    errorIcon.Parent =
-        errorContent
-
-    local iconAspect =
-        Instance.new(
-            "UIAspectRatioConstraint"
-        )
-
-    iconAspect.AspectRatio = 1
-
-    iconAspect.DominantAxis =
-        Enum.DominantAxis.Width
-
-    iconAspect.Parent =
-        errorIcon
-
-    --=========================================================
-    -- Error message
-    --=========================================================
-
-    local errorText =
-        Instance.new("TextLabel")
-
-    errorText.BackgroundTransparency =
-        1
-
-    errorText.Position =
-        UDim2.fromOffset(
-            108,
-            18
-        )
-
-    errorText.Size =
-        UDim2.new(
-            1,
-            -116,
-            0,
-            60
-        )
-
-    errorText.Font =
-        XP_FONT
-
-    errorText.Text =
-        "Equinox Cannon was not found in your inventory."
-
-    errorText.TextSize = 12
-
-    errorText.TextColor3 =
-        XP.Text
-
-    errorText.TextWrapped = true
-
-    errorText.TextXAlignment =
-        Enum.TextXAlignment.Left
-
-    errorText.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    errorText.ZIndex =
-        errorWindow.ZIndex + 3
-
-    errorText.Parent =
-        errorContent
-
-    --=========================================================
-    -- OK Button
-    --=========================================================
-
-    local okButton =
-        createXPButton(
-            errorContent,
-            UDim2.fromOffset(
-                75,
-                27
-            ),
-            UDim2.new(
-                1,
-                -83,
-                1,
-                -35
-            ),
-            errorWindow.ZIndex + 4,
-            true
-        )
-
-    local okText =
-        Instance.new("TextLabel")
-
-    okText.BackgroundTransparency =
-        1
-
-    okText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    okText.Font =
-        XP_FONT
-
-    okText.Text =
-        "OK"
-
-    okText.TextSize = 11
-
-    okText.TextColor3 =
-        XP.Text
-
-    okText.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    okText.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    okText.ZIndex =
-        errorWindow.ZIndex + 8
-
-    okText.Parent =
-        okButton
-
-    --=========================================================
-    -- Dragging
-    --=========================================================
-
-    enableDragging(
-        errorWindow,
-        errorTitleBar,
-        "error"
-    )
-
-    --=========================================================
-    -- Close
-    --=========================================================
-
-    local function closeError()
-
-        local currentIndex
-
-        for index, data in ipairs(
-            activeErrorWindows
-        ) do
-
-            if data.window ==
-                errorWindow then
-
-                currentIndex = index
-
-                break
-            end
-        end
-
-        if currentIndex then
-
-            table.remove(
-                activeErrorWindows,
-                currentIndex
-            )
-        end
-
-        local closePosition =
-            errorWindow.Position
-
-        tween(
-            errorWindow,
-            {
-                Size =
-                    UDim2.fromOffset(
-                        0,
-                        0
-                    ),
-
-                Position =
-                    UDim2.fromOffset(
-                        closePosition.X.Offset + 15,
-                        closePosition.Y.Offset + 15
-                    )
-            },
-            0.22,
-            Enum.EasingStyle.Back,
-            Enum.EasingDirection.In
-        )
-
-        task.delay(
-            0.24,
-            function()
-
-                safeDestroy(
-                    errorWindow
-                )
-
-                -- Recalculate the cascade after closing.
-                for index, data in ipairs(
-                    activeErrorWindows
-                ) do
-
-                    if data.window
-                        and data.window.Parent then
-
-                        tween(
-                            data.window,
-                            {
-                                Position =
-                                    getErrorStackPosition(
-                                        index
-                                    )
-                            },
-                            0.25,
-                            Enum.EasingStyle.Quad,
-                            Enum.EasingDirection.Out
-                        )
-                    end
-                end
-            end
-        )
-    end
-
-    closeButton.MouseButton1Click:Connect(
-        closeError
-    )
-
-    okButton.MouseButton1Click:Connect(
-        closeError
-    )
-
-    table.insert(
-        activeErrorWindows,
-        {
-            window = errorWindow
-        }
-    )
-
-    --=========================================================
-    -- Opening animation
-    --=========================================================
-
-    local targetPosition =
-        errorWindow.Position
-
-    errorWindow.Position =
-        UDim2.fromOffset(
-            targetPosition.X.Offset + 20,
-            targetPosition.Y.Offset + 20
-        )
-
-    errorWindow.Size =
-        UDim2.fromOffset(
-            ERROR_DEFAULT_WIDTH - 30,
-            ERROR_DEFAULT_HEIGHT - 25
-        )
-
-    tween(
-        errorWindow,
-        {
-            Position =
-                targetPosition,
-
-            Size =
-                UDim2.fromOffset(
-                    ERROR_DEFAULT_WIDTH,
-                    ERROR_DEFAULT_HEIGHT
-                )
-        },
-        0.36,
-        Enum.EasingStyle.Back,
-        Enum.EasingDirection.Out
-    )
-
-    return errorWindow
-end
-
---// =========================================================
---// Show Error
---// =========================================================
-
-local function showCannonMissingError()
-
-    if not gui
-        or guiClosed then
-
-        return
-    end
-
-    return createErrorWindow()
-end
-
---// =========================================================
 --// Settings Window
 --// =========================================================
 
@@ -1709,7 +2059,6 @@ local function createSettingsWindow(parent)
         XP.WindowOuter
 
     settingsWindow.BorderSizePixel = 0
-
     settingsWindow.Visible = false
     settingsWindow.ClipsDescendants = true
 
@@ -1735,10 +2084,6 @@ local function createSettingsWindow(parent)
             SETTINGS_DEFAULT_WIDTH,
             SETTINGS_DEFAULT_HEIGHT
         )
-
-    --=========================================================
-    -- Title bar
-    --=========================================================
 
     settingsTitleBar =
         Instance.new("Frame")
@@ -1861,10 +2206,6 @@ local function createSettingsWindow(parent)
     settingsTitleText.ZIndex = 55
     settingsTitleText.Parent =
         settingsTitleBar
-
-    --=========================================================
-    -- Buttons
-    --=========================================================
 
     settingsMinimizeButton =
         createXPButton(
@@ -2015,13 +2356,15 @@ local function createSettingsWindow(parent)
             255
         )
 
+    closeText.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    closeText.TextYAlignment =
+        Enum.TextYAlignment.Center
+
     closeText.ZIndex = 57
     closeText.Parent =
         settingsCloseButton
-
-    --=========================================================
-    -- Content
-    --=========================================================
 
     settingsContent =
         Instance.new("Frame")
@@ -2042,13 +2385,8 @@ local function createSettingsWindow(parent)
 
     settingsContent.BackgroundTransparency = 1
     settingsContent.ZIndex = 52
-
     settingsContent.Parent =
         settingsWindow
-
-    --=========================================================
-    -- Configure text
-    --=========================================================
 
     local infoBox =
         Instance.new("Frame")
@@ -2121,10 +2459,6 @@ local function createSettingsWindow(parent)
     infoText.ZIndex = 54
     infoText.Parent =
         infoBox
-
-    --=========================================================
-    -- Auto Equip
-    --=========================================================
 
     autoEquipButton =
         createXPButton(
@@ -2229,7 +2563,6 @@ local function createSettingsWindow(parent)
         "Auto-Equip Cannon"
 
     autoText.TextSize = 11
-
     autoText.TextColor3 =
         XP.Text
 
@@ -2277,10 +2610,6 @@ local function createSettingsWindow(parent)
     autoHint.Parent =
         autoEquipButton
 
-    --=========================================================
-    -- Auto Equip Toggle
-    --=========================================================
-
     autoEquipButton.MouseButton1Click:Connect(
         function()
 
@@ -2296,8 +2625,7 @@ local function createSettingsWindow(parent)
 
             if not hasEquinoxCannon() then
 
-                State.autoEquip =
-                    false
+                State.autoEquip = false
 
                 updateAutoEquip()
 
@@ -2311,10 +2639,6 @@ local function createSettingsWindow(parent)
             updateAutoEquip()
         end
     )
-
-    --=========================================================
-    -- Invisible Settings Resize Handle
-    --=========================================================
 
     settingsResizeHandle =
         Instance.new("Frame")
@@ -2342,18 +2666,12 @@ local function createSettingsWindow(parent)
             -3
         )
 
-    settingsResizeHandle.BackgroundTransparency =
-        1
-
-    settingsResizeHandle.BorderSizePixel =
-        0
-
+    settingsResizeHandle.BackgroundTransparency = 1
+    settingsResizeHandle.BorderSizePixel = 0
     settingsResizeHandle.ZIndex = 70
 
     settingsResizeHandle.Parent =
         settingsWindow
-
-    -- No visible resize lines here.
 
     enableDragging(
         settingsWindow,
@@ -2370,10 +2688,6 @@ local function createSettingsWindow(parent)
         SETTINGS_MAX_HEIGHT,
         "settings"
     )
-
-    --=========================================================
-    -- Settings Minimize
-    --=========================================================
 
     settingsMinimizeButton.MouseButton1Click:Connect(
         function()
@@ -2424,10 +2738,6 @@ local function createSettingsWindow(parent)
             end
         end
     )
-
-    --=========================================================
-    -- Settings Maximize
-    --=========================================================
 
     settingsMaximizeButton.MouseButton1Click:Connect(
         function()
@@ -2506,10 +2816,6 @@ local function createSettingsWindow(parent)
         end
     )
 
-    --=========================================================
-    -- Settings Close
-    --=========================================================
-
     settingsCloseButton.MouseButton1Click:Connect(
         function()
 
@@ -2560,7 +2866,6 @@ local function openSettings()
         return
     end
 
-    -- Already open = do nothing.
     if settingsWindow.Visible then
         return
     end
@@ -2647,6 +2952,9 @@ local function createMainWindow(parent)
         7
     )
 
+    -- Single outer blue border.
+    -- Removed the previous extra inner border because
+    -- it caused the background/border overlap.
     addStroke(
         mainWindow,
         XP.TitleBlueDark,
@@ -2666,44 +2974,7 @@ local function createMainWindow(parent)
         mainNormalSize
 
     --=========================================================
-    -- Inner border
-    --=========================================================
-
-    local inner =
-        Instance.new("Frame")
-
-    inner.Size =
-        UDim2.new(
-            1,
-            -4,
-            1,
-            -4
-        )
-
-    inner.Position =
-        UDim2.fromOffset(
-            2,
-            2
-        )
-
-    inner.BackgroundTransparency = 1
-    inner.BorderSizePixel = 0
-
-    inner.Parent =
-        mainWindow
-
-    addStroke(
-        inner,
-        Color3.fromRGB(
-            120,
-            145,
-            190
-        ),
-        1
-    )
-
-    --=========================================================
-    -- Title bar
+    -- Title Bar
     --=========================================================
 
     mainTitleBar =
@@ -2767,7 +3038,6 @@ local function createMainWindow(parent)
 
     titleCover.BorderSizePixel = 0
     titleCover.ZIndex = 10
-
     titleCover.Parent =
         mainTitleBar
 
@@ -2873,7 +3143,7 @@ local function createMainWindow(parent)
         mainTitleBar
 
     --=========================================================
-    -- Main buttons
+    -- Main Window Buttons
     --=========================================================
 
     mainMinimizeButton =
@@ -2948,89 +3218,145 @@ local function createMainWindow(parent)
             63
         )
 
-    local minText =
-        Instance.new("TextLabel")
+    --=========================================================
+    -- Centered Minimize Icon
+    --=========================================================
 
-    minText.BackgroundTransparency = 1
-    minText.Size =
-        UDim2.fromScale(
-            1,
-            1
+    local minIcon =
+        Instance.new("Frame")
+
+    minIcon.Name =
+        "MinimizeIcon"
+
+    minIcon.Size =
+        UDim2.fromOffset(
+            9,
+            2
         )
 
-    minText.Font =
-        XP_FONT_BOLD
+    minIcon.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
 
-    minText.Text = "_"
-    minText.TextSize = 12
+    minIcon.Position =
+        UDim2.fromScale(
+            0.5,
+            0.5
+        )
 
-    minText.TextColor3 =
+    minIcon.BackgroundColor3 =
         Color3.fromRGB(
             255,
             255,
             255
         )
 
-    minText.ZIndex = 18
-    minText.Parent =
+    minIcon.BorderSizePixel = 0
+
+    minIcon.ZIndex = 18
+    minIcon.Parent =
         mainMinimizeButton
 
-    local maxText =
-        Instance.new("TextLabel")
+    --=========================================================
+    -- Centered Maximize Icon
+    --=========================================================
 
-    maxText.BackgroundTransparency = 1
-    maxText.Size =
+    local maxIcon =
+        Instance.new("Frame")
+
+    maxIcon.Name =
+        "MaximizeIcon"
+
+    maxIcon.Size =
+        UDim2.fromOffset(
+            9,
+            8
+        )
+
+    maxIcon.AnchorPoint =
+        Vector2.new(
+            0.5,
+            0.5
+        )
+
+    maxIcon.Position =
         UDim2.fromScale(
-            1,
-            1
+            0.5,
+            0.5
         )
 
-    maxText.Font =
-        XP_FONT_BOLD
+    maxIcon.BackgroundTransparency = 1
 
-    maxText.Text = "□"
-    maxText.TextSize = 12
+    maxIcon.BorderSizePixel = 0
 
-    maxText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    maxText.ZIndex = 18
-    maxText.Parent =
+    maxIcon.ZIndex = 18
+    maxIcon.Parent =
         mainMaximizeButton
 
-    local closeText =
+    addStroke(
+        maxIcon,
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        ),
+        1
+    )
+
+    --=========================================================
+    -- Centered Close Icon
+    --=========================================================
+
+    local closeIcon =
         Instance.new("TextLabel")
 
-    closeText.BackgroundTransparency = 1
-    closeText.Size =
+    closeIcon.Name =
+        "CloseIcon"
+
+    closeIcon.BackgroundTransparency = 1
+
+    closeIcon.Size =
         UDim2.fromScale(
             1,
             1
         )
 
-    closeText.Font =
-        XP_FONT_BOLD
+    closeIcon.Position =
+        UDim2.fromScale(
+            0,
+            0
+        )
 
-    closeText.Text = "×"
-    closeText.TextSize = 15
+    closeIcon.Font =
+        Enum.Font.ArialBold
 
-    closeText.TextColor3 =
+    closeIcon.Text =
+        "×"
+
+    closeIcon.TextSize =
+        15
+
+    closeIcon.TextColor3 =
         Color3.fromRGB(
             255,
             255,
             255
         )
 
-    closeText.ZIndex = 18
-    closeText.Parent =
+    closeIcon.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    closeIcon.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    closeIcon.ZIndex = 18
+    closeIcon.Parent =
         mainCloseButton
 
     --=========================================================
-    -- Content
+    -- Main Content
     --=========================================================
 
     mainContent =
@@ -3111,7 +3437,6 @@ local function createMainWindow(parent)
         Instance.new("TextLabel")
 
     fireIcon.BackgroundTransparency = 1
-
     fireIcon.Size =
         UDim2.fromScale(
             1,
@@ -3211,10 +3536,6 @@ local function createMainWindow(parent)
     fireHint.ZIndex = 7
     fireHint.Parent =
         firingButton
-
-    --=========================================================
-    -- Status
-    --=========================================================
 
     statusContainer =
         Instance.new("Frame")
@@ -3484,7 +3805,7 @@ local function createMainWindow(parent)
         targetButton
 
     --=========================================================
-    -- Settings button
+    -- Settings
     --=========================================================
 
     settingsButton =
@@ -3573,6 +3894,7 @@ local function createMainWindow(parent)
         "Settings"
 
     settingsTitle.TextSize = 11
+
     settingsTitle.TextColor3 =
         XP.Text
 
@@ -3621,7 +3943,7 @@ local function createMainWindow(parent)
         settingsButton
 
     --=========================================================
-    -- Invisible Main Resize Handle
+    -- Invisible Resize Handle
     --=========================================================
 
     mainResizeHandle =
@@ -3654,14 +3976,11 @@ local function createMainWindow(parent)
     mainResizeHandle.BorderSizePixel = 0
 
     mainResizeHandle.ZIndex = 30
-
     mainResizeHandle.Parent =
         mainWindow
 
-    -- No visible resize lines.
-
     --=========================================================
-    -- Firing status
+    -- Firing Toggle
     --=========================================================
 
     firingButton.MouseButton1Click:Connect(
@@ -3674,8 +3993,13 @@ local function createMainWindow(parent)
             if State.isRunning then
 
                 State.isRunning = false
+                State.shootingEnabled = false
+
+                State.currentTarget = nil
+                State.currentTargetName = "None"
 
                 updateStatus()
+                updateTarget()
 
                 return
             end
@@ -3683,6 +4007,7 @@ local function createMainWindow(parent)
             if not hasEquinoxCannon() then
 
                 State.isRunning = false
+                State.shootingEnabled = false
 
                 updateStatus()
 
@@ -3691,7 +4016,13 @@ local function createMainWindow(parent)
                 return
             end
 
+            State.playerAlive =
+                isPlayerAlive()
+
             State.isRunning = true
+            State.shootingEnabled = true
+            State.shootingErrors = 0
+            State.lastFireTime = 0
 
             updateStatus()
         end
@@ -3759,7 +4090,7 @@ local function createMainWindow(parent)
     )
 
     --=========================================================
-    -- Maximize / Restore
+    -- Maximize
     --=========================================================
 
     mainMaximizeButton.MouseButton1Click:Connect(
@@ -3861,6 +4192,8 @@ local function createMainWindow(parent)
             guiClosed = true
 
             State.isRunning = false
+            State.shootingEnabled = false
+            State.currentTarget = nil
 
             setResizeCursor(false)
 
@@ -4027,7 +4360,7 @@ local function createGUI()
     updateAutoEquip()
 
     --=========================================================
-    -- Opening animation
+    -- Opening Animation
     --=========================================================
 
     mainWindow.Size =
@@ -4089,6 +4422,7 @@ function API.Start()
     if not hasEquinoxCannon() then
 
         State.isRunning = false
+        State.shootingEnabled = false
 
         updateStatus()
 
@@ -4097,7 +4431,13 @@ function API.Start()
         return false
     end
 
+    State.playerAlive =
+        isPlayerAlive()
+
     State.isRunning = true
+    State.shootingEnabled = true
+    State.shootingErrors = 0
+    State.lastFireTime = 0
 
     updateStatus()
 
@@ -4107,6 +4447,7 @@ end
 function API.Stop()
 
     State.isRunning = false
+    State.shootingEnabled = false
 
     State.currentTarget = nil
     State.currentTargetName = "None"
@@ -4124,6 +4465,18 @@ function API.SetTarget(target)
 
         State.currentTargetName =
             target.Name or "None"
+
+    elseif typeof(target) == "table"
+        and target.Model
+        and target.TargetPart then
+
+        State.currentTarget =
+            target
+
+        State.currentTargetName =
+            target.Name
+            or target.Model.Name
+            or "None"
 
     elseif typeof(target) == "string" then
 
@@ -4149,6 +4502,8 @@ function API.SetShootingEnabled(enabled)
 
     State.shootingEnabled =
         enabled == true
+
+    updateStatus()
 end
 
 function API.SetShootingErrors(count)
@@ -4231,6 +4586,82 @@ State.playerAlive =
 updateStatus()
 updateTarget()
 updateAutoEquip()
+
+--// =========================================================
+--// Main Firing Worker
+--// =========================================================
+
+task.spawn(function()
+
+    while not guiClosed do
+
+        State.playerAlive =
+            isPlayerAlive()
+
+        if State.isRunning
+            and State.playerAlive then
+
+            if State.autoEquip then
+                autoEquipTool()
+            end
+
+            if State.shootingEnabled then
+                attemptFire()
+            end
+
+        else
+
+            State.currentTarget = nil
+            State.currentTargetName = "None"
+        end
+
+        RunService.Heartbeat:Wait()
+    end
+end)
+
+--// =========================================================
+--// Target Worker
+--// =========================================================
+
+task.spawn(function()
+
+    while not guiClosed do
+
+        if State.isRunning
+            and State.playerAlive
+            and State.shootingEnabled then
+
+            local target =
+                selectTarget()
+
+            State.currentTarget =
+                target
+
+            if target then
+
+                State.currentTargetName =
+                    target.Name
+                    or (
+                        target.Model
+                        and target.Model.Name
+                    )
+                    or "None"
+
+            else
+
+                State.currentTargetName =
+                    "None"
+            end
+
+        else
+
+            State.currentTarget = nil
+            State.currentTargetName = "None"
+        end
+
+        task.wait(0.3)
+    end
+end)
 
 --// =========================================================
 --// UI Refresh
