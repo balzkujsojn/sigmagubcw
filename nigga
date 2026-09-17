@@ -57,6 +57,36 @@ local FURNITURE_TYPE_OPTIONS = {
 
 local selectedFurnitureType = "Furniture"
 
+--// Furniture placement preview / rotation / grid
+local FURNITURE_PREVIEW_TRANSPARENCY = 0.55
+local FURNITURE_ROTATION_STEP = 90
+
+--// Furniture grid
+--// Every furniture model has a 4x4x4 part named "center".
+--// That part is treated as the model's grid cell/reference point.
+--// The build grid is aligned to the 731 x 2 x 731 workspace base.
+local FURNITURE_GRID_SIZE = 4
+local FURNITURE_GRID_BASE_CENTER = Vector3.new(
+    -0.0386351347,
+    -1.51507568,
+    -0.349365205
+)
+local FURNITURE_GRID_BASE_SIZE = Vector3.new(
+    731,
+    2.0000007152557373,
+    731
+)
+
+-- Top surface of the workspace base part.
+local FURNITURE_GRID_TOP_Y =
+    FURNITURE_GRID_BASE_CENTER.Y +
+    (FURNITURE_GRID_BASE_SIZE.Y / 2)
+
+-- The center part is 4 studs tall, so its center sits
+-- half a cell above the surface of the workspace base.
+local FURNITURE_GRID_CENTER_Y_OFFSET =
+    FURNITURE_GRID_SIZE / 2
+
 --// =========================================================
 --// XP Fonts
 --// =========================================================
@@ -104,6 +134,13 @@ local furnitureState = {
     selectedModel = nil,
     selectedButton = nil,
 
+    -- Rotation is stored as a 4-state index:
+    -- 0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°.
+    rotation = 0,
+
+    -- Client-only ghost of the currently selected model.
+    previewModel = nil,
+
     waitingForClick = false,
     refreshing = false,
 
@@ -132,6 +169,7 @@ local furnitureScrollBy
 
 local showCannonMissingError
 local showFurnitureMissingError
+local setFurnitureStatus
 
 --// =========================================================
 --// Runtime Cache
@@ -1571,10 +1609,565 @@ local function furnitureMatchesType(
 end
 
 --// =========================================================
+--// Furniture Placement Preview / Rotation
+--// =========================================================
+
+local function destroyFurniturePreview()
+
+    if furnitureState.previewModel then
+
+        if mouse.TargetFilter ==
+            furnitureState.previewModel then
+
+            mouse.TargetFilter = nil
+        end
+
+        safeDestroy(
+            furnitureState.previewModel
+        )
+
+        furnitureState.previewModel =
+            nil
+    end
+end
+
+local function getFurnitureRotationCFrame()
+
+    return CFrame.Angles(
+        0,
+        math.rad(
+            furnitureState.rotation *
+            FURNITURE_ROTATION_STEP
+        ),
+        0
+    )
+end
+
+local function getFurnitureCenterPart(model)
+
+    if not model then
+        return nil
+    end
+
+    local center =
+        model:FindFirstChild("center", true)
+
+    if center and center:IsA("BasePart") then
+        return center
+    end
+
+    return nil
+end
+
+local function getFurnitureGridBaseTopY()
+
+    return FURNITURE_GRID_TOP_Y
+end
+
+local function snapFurnitureGridCoordinate(
+    value,
+    origin
+)
+
+    return origin +
+        math.floor(
+            ((value - origin) /
+            FURNITURE_GRID_SIZE) +
+            0.5
+        ) *
+        FURNITURE_GRID_SIZE
+end
+
+local function getFurnitureModelFromTarget(
+    target
+)
+
+    if not target
+        or not target:IsDescendantOf(Workspace) then
+
+        return nil
+    end
+
+    local current = target
+
+    while current
+        and current ~= Workspace do
+
+        if current:IsA("Model")
+            and getFurnitureCenterPart(current) then
+
+            return current
+        end
+
+        current = current.Parent
+    end
+
+    return nil
+end
+
+local function getTargetSurfaceWorldNormal(
+    target
+)
+
+    if not target
+        or not target:IsA("BasePart") then
+
+        return nil
+    end
+
+    local normalId = mouse.TargetSurface
+
+    if not normalId then
+        return nil
+    end
+
+    local localNormal
+
+    if normalId == Enum.NormalId.Top then
+        localNormal = Vector3.new(0, 1, 0)
+    elseif normalId == Enum.NormalId.Bottom then
+        localNormal = Vector3.new(0, -1, 0)
+    elseif normalId == Enum.NormalId.Left then
+        localNormal = Vector3.new(-1, 0, 0)
+    elseif normalId == Enum.NormalId.Right then
+        localNormal = Vector3.new(1, 0, 0)
+    elseif normalId == Enum.NormalId.Front then
+        localNormal = Vector3.new(0, 0, -1)
+    elseif normalId == Enum.NormalId.Back then
+        localNormal = Vector3.new(0, 0, 1)
+    else
+        return nil
+    end
+
+    return target.CFrame:VectorToWorldSpace(
+        localNormal
+    )
+end
+
+local function getDominantGridStepFromNormal(
+    worldNormal
+)
+
+    if not worldNormal then
+        return nil
+    end
+
+    local ax = math.abs(worldNormal.X)
+    local ay = math.abs(worldNormal.Y)
+    local az = math.abs(worldNormal.Z)
+
+    if ay >= ax and ay >= az then
+
+        return Vector3.new(
+            0,
+            worldNormal.Y >= 0 and 1 or -1,
+            0
+        )
+    end
+
+    if ax >= az then
+
+        return Vector3.new(
+            worldNormal.X >= 0 and 1 or -1,
+            0,
+            0
+        )
+    end
+
+    return Vector3.new(
+        0,
+        0,
+        worldNormal.Z >= 0 and 1 or -1
+    )
+end
+
+local function getFurnitureGridPlacementCFrame(
+    model
+)
+
+    if not model then
+        return nil
+    end
+
+    local target = mouse.Target
+
+    if not target then
+        return nil
+    end
+
+    local centerPart =
+        getFurnitureCenterPart(model)
+
+    if not centerPart then
+        return nil
+    end
+
+    local targetFurniture =
+        getFurnitureModelFromTarget(target)
+
+    local desiredCenterPosition
+
+    if targetFurniture then
+
+        local targetCenter =
+            getFurnitureCenterPart(
+                targetFurniture
+            )
+
+        if not targetCenter then
+            return nil
+        end
+
+        -- When hovering an already placed furniture model, its
+        -- center marks the current grid cell. Move exactly one
+        -- 4-stud cell toward the surface being pointed at.
+        -- This makes top/side stacking work for every furniture
+        -- model that has the shared "center" part.
+        local worldNormal =
+            getTargetSurfaceWorldNormal(target)
+
+        local gridStep =
+            getDominantGridStepFromNormal(
+                worldNormal
+            )
+
+        if not gridStep then
+            return nil
+        end
+
+        desiredCenterPosition =
+            targetCenter.Position +
+            (gridStep * FURNITURE_GRID_SIZE)
+
+    else
+
+        -- The empty build surface is the TOP of the 731 x 2 x 731
+        -- workspace base. The center part's bottom face sits on it.
+        local hitPosition =
+            mouse.Hit.Position
+
+        local snappedX =
+            snapFurnitureGridCoordinate(
+                hitPosition.X,
+                FURNITURE_GRID_BASE_CENTER.X
+            )
+
+        local snappedZ =
+            snapFurnitureGridCoordinate(
+                hitPosition.Z,
+                FURNITURE_GRID_BASE_CENTER.Z
+            )
+
+        desiredCenterPosition =
+            Vector3.new(
+                snappedX,
+                getFurnitureGridBaseTopY() +
+                    FURNITURE_GRID_CENTER_Y_OFFSET,
+                snappedZ
+            )
+    end
+
+    -- Convert the desired center transform back into the model
+    -- pivot so the model stays aligned even when its pivot is not
+    -- located at the center part.
+    local modelPivot =
+        model:GetPivot()
+
+    local centerRelativeToPivot =
+        modelPivot:ToObjectSpace(
+            centerPart.CFrame
+        )
+
+    local desiredCenterCFrame =
+        CFrame.new(
+            desiredCenterPosition
+        ) *
+        getFurnitureRotationCFrame()
+
+    return desiredCenterCFrame *
+        centerRelativeToPivot:Inverse()
+end
+
+local function getFurniturePreviewCFrame()
+
+    local model =
+        furnitureState.selectedModel
+
+    local gridCFrame =
+        getFurnitureGridPlacementCFrame(
+            model
+        )
+
+    if gridCFrame then
+        return gridCFrame
+    end
+
+    -- Fallback for any unexpected model without a center part.
+    local hitCFrame =
+        mouse.Hit
+
+    if not hitCFrame then
+        return nil
+    end
+
+    return CFrame.new(
+        hitCFrame.Position +
+        Vector3.new(0, 3, 0)
+    ) *
+    getFurnitureRotationCFrame()
+end
+
+local function prepareFurniturePreview(
+    preview
+)
+
+    if not preview then
+        return
+    end
+
+    for _, descendant in ipairs(
+        preview:GetDescendants()
+    ) do
+
+        if descendant:IsA("BasePart") then
+
+            descendant.Anchored =
+                true
+
+            descendant.CanCollide =
+                false
+
+            descendant.CanTouch =
+                false
+
+            descendant.CanQuery =
+                false
+
+            descendant.Massless =
+                true
+
+            descendant.Transparency =
+                math.max(
+                    descendant.Transparency,
+                    FURNITURE_PREVIEW_TRANSPARENCY
+                )
+
+        elseif descendant:IsA("Decal")
+            or descendant:IsA("Texture") then
+
+            descendant.Transparency =
+                math.max(
+                    descendant.Transparency,
+                    FURNITURE_PREVIEW_TRANSPARENCY
+                )
+
+        elseif descendant:IsA("ParticleEmitter")
+            or descendant:IsA("Trail")
+            or descendant:IsA("Beam")
+            or descendant:IsA("Smoke")
+            or descendant:IsA("Fire")
+            or descendant:IsA("Sparkles") then
+
+            descendant.Enabled =
+                false
+
+        elseif descendant:IsA("Highlight") then
+
+            descendant.Enabled =
+                false
+
+        elseif descendant:IsA("ProximityPrompt")
+            or descendant:IsA("ClickDetector") then
+
+            descendant:Destroy()
+
+        elseif descendant:IsA("BillboardGui")
+            or descendant:IsA("SurfaceGui") then
+
+            descendant.Enabled =
+                false
+        end
+    end
+end
+
+local function updateFurniturePreviewTransform()
+
+    local preview =
+        furnitureState.previewModel
+
+    if not preview
+        or not preview.Parent then
+
+        return
+    end
+
+    local previewCFrame =
+        getFurniturePreviewCFrame()
+
+    if not previewCFrame then
+
+        preview.Parent =
+            nil
+
+        return
+    end
+
+    if preview.Parent ~= Workspace then
+
+        preview.Parent =
+            Workspace
+    end
+
+    preview:PivotTo(
+        previewCFrame
+    )
+end
+
+local function createFurniturePreview(
+    model
+)
+
+    destroyFurniturePreview()
+
+    if not model then
+        return
+    end
+
+    local success, preview =
+        pcall(
+            function()
+                return model:Clone()
+            end
+        )
+
+    if not success
+        or not preview then
+
+        return
+    end
+
+    preview.Name =
+        "_FurniturePlacementPreview"
+
+    prepareFurniturePreview(
+        preview
+    )
+
+    preview.Parent =
+        Workspace
+
+    -- Keep the placement ghost out of mouse targeting.
+    mouse.TargetFilter = preview
+
+    furnitureState.previewModel =
+        preview
+
+    updateFurniturePreviewTransform()
+end
+
+local function updateFurniturePreview()
+
+    if guiClosed
+        or not furnitureWindow
+        or not furnitureWindow.Visible
+        or not furnitureState.selectedModel
+        or not furnitureState.waitingForClick
+        or UserInputService:GetFocusedTextBox() then
+
+        if furnitureState.previewModel
+            and furnitureState.previewModel.Parent then
+
+            furnitureState.previewModel.Parent =
+                nil
+        end
+
+        return
+    end
+
+    if not furnitureState.previewModel then
+
+        createFurniturePreview(
+            furnitureState.selectedModel
+        )
+
+        return
+    end
+
+    -- After a Shift placement the same preview is kept client-side,
+    -- so restore it to Workspace before updating its transform.
+    if furnitureState.previewModel.Parent ~= Workspace then
+
+        furnitureState.previewModel.Parent =
+            Workspace
+    end
+
+    updateFurniturePreviewTransform()
+end
+
+local function rotateSelectedFurniture()
+
+    if not furnitureState.selectedModel
+        or not furnitureState.waitingForClick
+        or UserInputService:GetFocusedTextBox() then
+
+        return
+    end
+
+    furnitureState.rotation =
+        (
+            furnitureState.rotation +
+            1
+        ) % 4
+
+    updateFurniturePreviewTransform()
+
+    setFurnitureStatus(
+        "Selected: " ..
+        furnitureState.selectedModel.Name ..
+        " (" ..
+        tostring(
+            furnitureState.rotation *
+            FURNITURE_ROTATION_STEP
+        ) ..
+        "°) → click in game",
+        "active"
+    )
+end
+
+-- Keep the ghost locked to the mouse while selected.
+RunService.RenderStepped:Connect(
+    updateFurniturePreview
+)
+
+UserInputService.InputBegan:Connect(
+    function(
+        input,
+        gameProcessed
+    )
+
+        if gameProcessed then
+            return
+        end
+
+        if input.UserInputType ~=
+            Enum.UserInputType.Keyboard then
+
+            return
+        end
+
+        if input.KeyCode ==
+            Enum.KeyCode.R then
+
+            rotateSelectedFurniture()
+        end
+    end
+)
+
+--// =========================================================
 --// Furniture Status
 --// =========================================================
 
-local function setFurnitureStatus(
+setFurnitureStatus = function(
     text,
     state
 )
@@ -1750,6 +2343,11 @@ end
 
 local function clearFurnitureSelection()
 
+    destroyFurniturePreview()
+
+    furnitureState.rotation =
+        0
+
     if furnitureState.selectedButton then
 
         setFurnitureButtonNormal(
@@ -1802,6 +2400,9 @@ local function selectFurnitureModel(
     furnitureState.selectedButton =
         button
 
+    furnitureState.rotation =
+        0
+
     furnitureState.waitingForClick =
         true
 
@@ -1809,10 +2410,14 @@ local function selectFurnitureModel(
         button
     )
 
+    createFurniturePreview(
+        model
+    )
+
     setFurnitureStatus(
         "Selected: " ..
         model.Name ..
-        " → click in game",
+        " (0°) → click in game",
         "active"
     )
 end
@@ -2408,13 +3013,23 @@ local function furnitureMouseSpawn()
         "active"
     )
 
-    local clickPos =
-        mouse.Hit.Position +
-        Vector3.new(
-            0,
-            3,
-            0
+    local rotationIndex =
+        furnitureState.rotation
+
+    local placementCFrame =
+        getFurnitureGridPlacementCFrame(
+            modelToSpawn
         )
+
+    if not placementCFrame then
+
+        placementCFrame =
+            CFrame.new(
+                mouse.Hit.Position +
+                Vector3.new(0, 3, 0)
+            ) *
+            getFurnitureRotationCFrame()
+    end
 
     local args = {
 
@@ -2430,12 +3045,10 @@ local function furnitureMouseSpawn()
                 furnitureBaseFolder,
 
             [3] =
-                CFrame.new(
-                    clickPos
-                ),
+                placementCFrame,
 
             [4] =
-                0
+                rotationIndex
         }
     }
 
@@ -2452,7 +3065,12 @@ local function furnitureMouseSpawn()
         setFurnitureStatus(
             "Selected: " ..
             modelToSpawn.Name ..
-            " → click in game",
+            " (" ..
+            tostring(
+                furnitureState.rotation *
+                FURNITURE_ROTATION_STEP
+            ) ..
+            "°) → click in game",
             "active"
         )
 
@@ -2480,10 +3098,32 @@ local function furnitureMouseSpawn()
             furnitureState.waitingForClick =
                 true
 
+            -- Keep the same client-side preview alive for repeated
+            -- placement and immediately move it to the next cursor cell.
+            if not furnitureState.previewModel then
+
+                createFurniturePreview(
+                    modelToSpawn
+                )
+
+            else
+
+                furnitureState.previewModel.Parent =
+                    Workspace
+
+                updateFurniturePreviewTransform()
+
+            end
+
             setFurnitureStatus(
                 "Spawned " ..
                 modelToSpawn.Name ..
-                " → click again",
+                " (" ..
+                tostring(
+                    furnitureState.rotation *
+                    FURNITURE_ROTATION_STEP
+                ) ..
+                "°) → click again",
                 "success"
             )
 
@@ -2558,11 +3198,16 @@ local function furnitureMouseSpawn()
             0.15
         )
 
+        destroyFurniturePreview()
+
         furnitureState.selectedModel =
             nil
 
         furnitureState.selectedButton =
             nil
+
+        furnitureState.rotation =
+            0
 
         furnitureState.waitingForClick =
             false
@@ -8922,6 +9567,8 @@ local function createMainWindow(
 
             furnitureState.waitingForClick =
                 false
+
+            destroyFurniturePreview()
 
             setResizeCursor(
                 false
