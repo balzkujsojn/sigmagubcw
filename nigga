@@ -137,6 +137,9 @@ local ERROR_STACK_OFFSET_X = 24
 local ERROR_STACK_OFFSET_Y = 24
 local ERROR_SCREEN_MARGIN = 20
 
+local ERROR_SOUND_ID =
+    "rbxassetid://109963399580326"
+
 --// =========================================================
 --// XP Colors
 --// =========================================================
@@ -309,31 +312,258 @@ local function setResizeCursor(enabled)
 end
 
 --// =========================================================
+--// Window Control Icons
+--//
+--// These are used by BOTH the main window and the settings
+--// window so the icons are identical and perfectly centered.
+--// =========================================================
+
+local function createWindowControlIcon(
+    button,
+    controlType,
+    zIndex
+)
+
+    -- Remove any previous icon objects.
+    for _, child in ipairs(button:GetChildren()) do
+
+        if child.Name == "WindowControlIcon"
+            or child.Name == "WindowControlPart" then
+
+            child:Destroy()
+        end
+    end
+
+    local white =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    --=========================================================
+    -- Minimize
+    --=========================================================
+
+    if controlType == "minimize" then
+
+        local line =
+            Instance.new("Frame")
+
+        line.Name =
+            "WindowControlIcon"
+
+        line.Size =
+            UDim2.fromOffset(
+                9,
+                2
+            )
+
+        line.AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            )
+
+        line.Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            )
+
+        line.BackgroundColor3 =
+            white
+
+        line.BorderSizePixel = 0
+
+        line.ZIndex =
+            zIndex or 20
+
+        line.Parent =
+            button
+
+        return
+    end
+
+    --=========================================================
+    -- Maximize
+    --=========================================================
+
+    if controlType == "maximize" then
+
+        local square =
+            Instance.new("Frame")
+
+        square.Name =
+            "WindowControlIcon"
+
+        square.Size =
+            UDim2.fromOffset(
+                9,
+                8
+            )
+
+        square.AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            )
+
+        square.Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            )
+
+        square.BackgroundTransparency = 1
+
+        square.BorderSizePixel = 0
+
+        square.ZIndex =
+            zIndex or 20
+
+        square.Parent =
+            button
+
+        addStroke(
+            square,
+            white,
+            1
+        )
+
+        return
+    end
+
+    --=========================================================
+    -- Close
+    --=========================================================
+
+    if controlType == "close" then
+
+        local lineA =
+            Instance.new("Frame")
+
+        lineA.Name =
+            "WindowControlPart"
+
+        lineA.Size =
+            UDim2.fromOffset(
+                2,
+                11
+            )
+
+        lineA.AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            )
+
+        lineA.Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            )
+
+        lineA.Rotation = 45
+
+        lineA.BackgroundColor3 =
+            white
+
+        lineA.BorderSizePixel = 0
+
+        lineA.ZIndex =
+            zIndex or 20
+
+        lineA.Parent =
+            button
+
+        local lineB =
+            Instance.new("Frame")
+
+        lineB.Name =
+            "WindowControlPart"
+
+        lineB.Size =
+            UDim2.fromOffset(
+                2,
+                11
+            )
+
+        lineB.AnchorPoint =
+            Vector2.new(
+                0.5,
+                0.5
+            )
+
+        lineB.Position =
+            UDim2.fromScale(
+                0.5,
+                0.5
+            )
+
+        lineB.Rotation = -45
+
+        lineB.BackgroundColor3 =
+            white
+
+        lineB.BorderSizePixel = 0
+
+        lineB.ZIndex =
+            zIndex or 20
+
+        lineB.Parent =
+            button
+
+        return
+    end
+end
+
+--// =========================================================
 --// XP Button
 --// =========================================================
 
-local function createXPButton(parent, size, position, zIndex, rounded)
-    local button = Instance.new("TextButton")
+local function createXPButton(
+    parent,
+    size,
+    position,
+    zIndex,
+    rounded
+)
+
+    local button =
+        Instance.new("TextButton")
 
     button.Size = size
     button.Position = position
 
-    button.BackgroundColor3 = XP.ButtonMiddle
+    button.BackgroundColor3 =
+        XP.ButtonMiddle
+
     button.BorderSizePixel = 0
 
     button.Text = ""
     button.AutoButtonColor = false
 
-    button.ZIndex = zIndex or 5
+    button.ZIndex =
+        zIndex or 5
+
     button.Parent = parent
 
-    addStroke(button, XP.BorderDark, 1)
+    addStroke(
+        button,
+        XP.BorderDark,
+        1
+    )
 
     if rounded then
-        addCorner(button, 3)
+        addCorner(
+            button,
+            3
+        )
     end
 
-    local highlight = Instance.new("Frame")
+    local highlight =
+        Instance.new("Frame")
 
     highlight.Size =
         UDim2.new(
@@ -349,19 +579,30 @@ local function createXPButton(parent, size, position, zIndex, rounded)
             1
         )
 
-    highlight.BackgroundTransparency = 1
-    highlight.BorderSizePixel = 0
+    highlight.BackgroundTransparency =
+        1
+
+    highlight.BorderSizePixel =
+        0
 
     highlight.ZIndex =
         (zIndex or 5) + 1
 
-    highlight.Parent = button
+    highlight.Parent =
+        button
 
     if rounded then
-        addCorner(highlight, 2)
+        addCorner(
+            highlight,
+            2
+        )
     end
 
-    addStroke(highlight, XP.BorderLight, 1)
+    addStroke(
+        highlight,
+        XP.BorderLight,
+        1
+    )
 
     local gradient =
         addGradient(
@@ -370,105 +611,130 @@ local function createXPButton(parent, size, position, zIndex, rounded)
             XP.ButtonBottom
         )
 
-    local originalPosition = position
+    local originalPosition =
+        position
 
-    button.MouseEnter:Connect(function()
-        if button:GetAttribute("Pressed") then
-            return
+    button.MouseEnter:Connect(
+        function()
+
+            if button:GetAttribute(
+                "Pressed"
+            ) then
+
+                return
+            end
+
+            gradient.Color =
+                ColorSequence.new({
+                    ColorSequenceKeypoint.new(
+                        0,
+                        Color3.fromRGB(
+                            255,
+                            255,
+                            255
+                        )
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        Color3.fromRGB(
+                            225,
+                            223,
+                            211
+                        )
+                    )
+                })
         end
+    )
 
-        gradient.Color =
-            ColorSequence.new({
-                ColorSequenceKeypoint.new(
-                    0,
-                    Color3.fromRGB(
-                        255,
-                        255,
-                        255
+    button.MouseLeave:Connect(
+        function()
+
+            if button:GetAttribute(
+                "Pressed"
+            ) then
+
+                return
+            end
+
+            gradient.Color =
+                ColorSequence.new({
+                    ColorSequenceKeypoint.new(
+                        0,
+                        XP.ButtonTop
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        XP.ButtonBottom
                     )
-                ),
-
-                ColorSequenceKeypoint.new(
-                    1,
-                    Color3.fromRGB(
-                        225,
-                        223,
-                        211
-                    )
-                )
-            })
-    end)
-
-    button.MouseLeave:Connect(function()
-        if button:GetAttribute("Pressed") then
-            return
+                })
         end
+    )
 
-        gradient.Color =
-            ColorSequence.new({
-                ColorSequenceKeypoint.new(
-                    0,
-                    XP.ButtonTop
-                ),
+    button.MouseButton1Down:Connect(
+        function()
 
-                ColorSequenceKeypoint.new(
-                    1,
-                    XP.ButtonBottom
-                )
-            })
-    end)
-
-    button.MouseButton1Down:Connect(function()
-        button:SetAttribute("Pressed", true)
-
-        gradient.Color =
-            ColorSequence.new({
-                ColorSequenceKeypoint.new(
-                    0,
-                    Color3.fromRGB(
-                        205,
-                        202,
-                        190
-                    )
-                ),
-
-                ColorSequenceKeypoint.new(
-                    1,
-                    Color3.fromRGB(
-                        238,
-                        235,
-                        222
-                    )
-                )
-            })
-
-        button.Position =
-            originalPosition +
-            UDim2.fromOffset(
-                1,
-                1
+            button:SetAttribute(
+                "Pressed",
+                true
             )
-    end)
 
-    button.MouseButton1Up:Connect(function()
-        button:SetAttribute("Pressed", false)
+            gradient.Color =
+                ColorSequence.new({
+                    ColorSequenceKeypoint.new(
+                        0,
+                        Color3.fromRGB(
+                            205,
+                            202,
+                            190
+                        )
+                    ),
 
-        button.Position =
-            originalPosition
+                    ColorSequenceKeypoint.new(
+                        1,
+                        Color3.fromRGB(
+                            238,
+                            235,
+                            222
+                        )
+                    )
+                })
 
-        gradient.Color =
-            ColorSequence.new({
-                ColorSequenceKeypoint.new(
-                    0,
-                    XP.ButtonTop
-                ),
-
-                ColorSequenceKeypoint.new(
+            button.Position =
+                originalPosition +
+                UDim2.fromOffset(
                     1,
-                    XP.ButtonBottom
+                    1
                 )
-            })
-    end)
+        end
+    )
+
+    button.MouseButton1Up:Connect(
+        function()
+
+            button:SetAttribute(
+                "Pressed",
+                false
+            )
+
+            button.Position =
+                originalPosition
+
+            gradient.Color =
+                ColorSequence.new({
+                    ColorSequenceKeypoint.new(
+                        0,
+                        XP.ButtonTop
+                    ),
+
+                    ColorSequenceKeypoint.new(
+                        1,
+                        XP.ButtonBottom
+                    )
+                })
+        end
+    )
 
     return button
 end
@@ -477,18 +743,36 @@ end
 --// XP Icon
 --// =========================================================
 
-local function createXPImage(parent, position, size, zIndex)
-    local image = Instance.new("ImageLabel")
+local function createXPImage(
+    parent,
+    position,
+    size,
+    zIndex
+)
 
-    image.BackgroundTransparency = 1
-    image.Position = position
-    image.Size = size
+    local image =
+        Instance.new("ImageLabel")
 
-    image.Image = XP_ICON
-    image.ScaleType = Enum.ScaleType.Fit
+    image.BackgroundTransparency =
+        1
 
-    image.ZIndex = zIndex or 5
-    image.Parent = parent
+    image.Position =
+        position
+
+    image.Size =
+        size
+
+    image.Image =
+        XP_ICON
+
+    image.ScaleType =
+        Enum.ScaleType.Fit
+
+    image.ZIndex =
+        zIndex or 5
+
+    image.Parent =
+        parent
 
     local aspect =
         Instance.new(
@@ -496,10 +780,12 @@ local function createXPImage(parent, position, size, zIndex)
         )
 
     aspect.AspectRatio = 1
+
     aspect.DominantAxis =
         Enum.DominantAxis.Height
 
-    aspect.Parent = image
+    aspect.Parent =
+        image
 
     return image
 end
@@ -509,6 +795,7 @@ end
 --// =========================================================
 
 local function isPlayerAlive()
+
     if not player.Character then
         return false
     end
@@ -526,10 +813,12 @@ local function isPlayerAlive()
 end
 
 local function hasEquinoxCannon()
+
     local character =
         player.Character
 
     if character then
+
         local equippedTool =
             character:FindFirstChild(
                 CONFIG.TOOL_NAME
@@ -548,6 +837,7 @@ local function hasEquinoxCannon()
         )
 
     if backpack then
+
         local inventoryTool =
             backpack:FindFirstChild(
                 CONFIG.TOOL_NAME
@@ -564,6 +854,7 @@ local function hasEquinoxCannon()
 end
 
 local function autoEquipTool()
+
     if not State.autoEquip
         or not State.isRunning
         or not State.playerAlive then
@@ -644,6 +935,7 @@ end
 --// =========================================================
 
 local function getTargetPart(model)
+
     local possibleParts = {
         "HumanoidRootPart",
         "Head",
@@ -654,7 +946,10 @@ local function getTargetPart(model)
         "Body"
     }
 
-    for _, partName in ipairs(possibleParts) do
+    for _, partName in ipairs(
+        possibleParts
+    ) do
+
         local part =
             model:FindFirstChild(
                 partName
@@ -667,7 +962,10 @@ local function getTargetPart(model)
         end
     end
 
-    for _, child in ipairs(model:GetChildren()) do
+    for _, child in ipairs(
+        model:GetChildren()
+    ) do
+
         if child:IsA("BasePart") then
             return child
         end
@@ -677,7 +975,11 @@ local function getTargetPart(model)
 end
 
 local function isPlayerCharacter(model)
-    for _, plr in ipairs(Players:GetPlayers()) do
+
+    for _, plr in ipairs(
+        Players:GetPlayers()
+    ) do
+
         if plr.Character == model then
             return true
         end
@@ -687,6 +989,7 @@ local function isPlayerCharacter(model)
 end
 
 local function findEnemies()
+
     if not State.playerAlive
         or not State.shootingEnabled then
 
@@ -706,7 +1009,9 @@ local function findEnemies()
 
     local enemies = {}
 
-    for _, model in ipairs(cache.workspaceChildren) do
+    for _, model in ipairs(
+        cache.workspaceChildren
+    ) do
 
         if model:IsA("Model")
             and model.Parent == workspace then
@@ -719,14 +1024,21 @@ local function findEnemies()
             if humanoid
                 and humanoid.Health > 0 then
 
-                if IGNORE_ENEMIES[model.Name] then
+                if IGNORE_ENEMIES[
+                    model.Name
+                ] then
+
                     continue
                 end
 
-                if not isPlayerCharacter(model) then
+                if not isPlayerCharacter(
+                    model
+                ) then
 
                     local targetPart =
-                        getTargetPart(model)
+                        getTargetPart(
+                            model
+                        )
 
                     if targetPart then
 
@@ -750,6 +1062,7 @@ local function findEnemies()
 end
 
 local function selectTarget()
+
     if not State.playerAlive
         or not State.shootingEnabled then
 
@@ -788,7 +1101,9 @@ local function selectTarget()
     local closestDistance =
         math.huge
 
-    for _, enemy in ipairs(enemies) do
+    for _, enemy in ipairs(
+        enemies
+    ) do
 
         if enemy.TargetPart
             and enemy.TargetPart.Parent then
@@ -819,6 +1134,7 @@ end
 --// =========================================================
 
 local function getValidTool()
+
     if not State.playerAlive
         or not State.shootingEnabled then
 
@@ -872,6 +1188,7 @@ end
 --// =========================================================
 
 local function attemptFire()
+
     if not State.isRunning then
         return
     end
@@ -948,17 +1265,19 @@ local function attemptFire()
         targetPos
 
     local fireSuccess =
-        pcall(function()
+        pcall(
+            function()
 
-            toolData.Remote:InvokeServer(
-                "fire",
-                {
-                    startPos,
-                    endPos,
-                    State.chargeValue
-                }
-            )
-        end)
+                toolData.Remote:InvokeServer(
+                    "fire",
+                    {
+                        startPos,
+                        endPos,
+                        State.chargeValue
+                    }
+                )
+            end
+        )
 
     if not fireSuccess then
 
@@ -995,6 +1314,7 @@ local function attemptFire()
                 end
             )
         end
+
     else
 
         State.shootingErrors = 0
@@ -1006,6 +1326,7 @@ end
 --// =========================================================
 
 local function updateStatus()
+
     if not statusValue
         or not statusDot then
 
@@ -1055,6 +1376,7 @@ local function updateStatus()
 end
 
 local function updateTarget()
+
     if not targetValue then
         return
     end
@@ -1073,6 +1395,7 @@ local function updateTarget()
 end
 
 local function updateAutoEquip()
+
     if not autoEquipCheck then
         return
     end
@@ -1085,7 +1408,9 @@ end
 --// Error Stack Position
 --// =========================================================
 
-local function getErrorStackPosition(stackIndex)
+local function getErrorStackPosition(
+    stackIndex
+)
 
     local camera =
         workspace.CurrentCamera
@@ -1196,7 +1521,9 @@ local function createErrorWindow()
         XP.WindowOuter
 
     errorWindow.BorderSizePixel = 0
-    errorWindow.ClipsDescendants = true
+
+    errorWindow.ClipsDescendants =
+        true
 
     errorWindow.ZIndex =
         100 +
@@ -1204,6 +1531,38 @@ local function createErrorWindow()
 
     errorWindow.Parent =
         gui
+
+    --=========================================================
+    -- Error sound
+    --=========================================================
+
+    local errorSound =
+        Instance.new("Sound")
+
+    errorSound.Name =
+        "ErrorSound"
+
+    errorSound.SoundId =
+        ERROR_SOUND_ID
+
+    errorSound.Volume = 1
+
+    errorSound.Looped = false
+
+    errorSound.Parent =
+        errorWindow
+
+    pcall(function()
+        errorSound:Play()
+    end)
+
+    errorSound.Ended:Connect(
+        function()
+            safeDestroy(
+                errorSound
+            )
+        end
+    )
 
     addCorner(
         errorWindow,
@@ -1215,6 +1574,10 @@ local function createErrorWindow()
         XP.TitleBlueDark,
         2
     )
+
+    --=========================================================
+    -- Error title bar
+    --=========================================================
 
     local errorTitleBar =
         Instance.new("Frame")
@@ -1331,6 +1694,10 @@ local function createErrorWindow()
     errorTitle.Parent =
         errorTitleBar
 
+    --=========================================================
+    -- Error close button
+    --=========================================================
+
     local closeButton =
         createXPButton(
             errorTitleBar,
@@ -1355,43 +1722,15 @@ local function createErrorWindow()
             63
         )
 
-    local closeText =
-        Instance.new("TextLabel")
-
-    closeText.BackgroundTransparency = 1
-    closeText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    closeText.Font =
-        XP_FONT_BOLD
-
-    closeText.Text =
-        "×"
-
-    closeText.TextSize =
-        15
-
-    closeText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    closeText.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    closeText.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    closeText.ZIndex =
+    createWindowControlIcon(
+        closeButton,
+        "close",
         errorWindow.ZIndex + 8
+    )
 
-    closeText.Parent =
-        closeButton
+    --=========================================================
+    -- Error content
+    --=========================================================
 
     local errorContent =
         Instance.new("Frame")
@@ -1417,6 +1756,10 @@ local function createErrorWindow()
 
     errorContent.Parent =
         errorWindow
+
+    --=========================================================
+    -- Error icon
+    --=========================================================
 
     local errorIcon =
         Instance.new("ImageLabel")
@@ -1453,11 +1796,16 @@ local function createErrorWindow()
         )
 
     iconAspect.AspectRatio = 1
+
     iconAspect.DominantAxis =
         Enum.DominantAxis.Width
 
     iconAspect.Parent =
         errorIcon
+
+    --=========================================================
+    -- Error message
+    --=========================================================
 
     local errorText =
         Instance.new("TextLabel")
@@ -1485,6 +1833,7 @@ local function createErrorWindow()
         "Equinox Cannon was not found in your inventory."
 
     errorText.TextSize = 12
+
     errorText.TextColor3 =
         XP.Text
 
@@ -1501,6 +1850,10 @@ local function createErrorWindow()
 
     errorText.Parent =
         errorContent
+
+    --=========================================================
+    -- OK button
+    --=========================================================
 
     local okButton =
         createXPButton(
@@ -1553,7 +1906,12 @@ local function createErrorWindow()
     okText.Parent =
         okButton
 
+    --=========================================================
+    -- Error dragging
+    --=========================================================
+
     local dragging = false
+
     local dragStart
     local startPosition
 
@@ -1625,6 +1983,10 @@ local function createErrorWindow()
         end
     )
 
+    --=========================================================
+    -- Close error
+    --=========================================================
+
     local function closeError()
 
         local currentIndex
@@ -1643,6 +2005,7 @@ local function createErrorWindow()
         end
 
         if currentIndex then
+
             table.remove(
                 activeErrorWindows,
                 currentIndex
@@ -1719,6 +2082,10 @@ local function createErrorWindow()
             window = errorWindow
         }
     )
+
+    --=========================================================
+    -- Opening animation
+    --=========================================================
 
     local targetPosition =
         errorWindow.Position
@@ -2059,11 +2426,16 @@ local function createSettingsWindow(parent)
         XP.WindowOuter
 
     settingsWindow.BorderSizePixel = 0
+
     settingsWindow.Visible = false
-    settingsWindow.ClipsDescendants = true
+
+    settingsWindow.ClipsDescendants =
+        true
 
     settingsWindow.ZIndex = 50
-    settingsWindow.Parent = parent
+
+    settingsWindow.Parent =
+        parent
 
     addCorner(
         settingsWindow,
@@ -2084,6 +2456,10 @@ local function createSettingsWindow(parent)
             SETTINGS_DEFAULT_WIDTH,
             SETTINGS_DEFAULT_HEIGHT
         )
+
+    --=========================================================
+    -- Settings Title Bar
+    --=========================================================
 
     settingsTitleBar =
         Instance.new("Frame")
@@ -2106,6 +2482,7 @@ local function createSettingsWindow(parent)
         XP.TitleBlueTop
 
     settingsTitleBar.BorderSizePixel = 0
+
     settingsTitleBar.ZIndex = 51
 
     settingsTitleBar.Parent =
@@ -2145,6 +2522,7 @@ local function createSettingsWindow(parent)
         XP.TitleBlueBottom
 
     titleCover.BorderSizePixel = 0
+
     titleCover.ZIndex = 51
 
     titleCover.Parent =
@@ -2204,8 +2582,13 @@ local function createSettingsWindow(parent)
         Enum.TextYAlignment.Center
 
     settingsTitleText.ZIndex = 55
+
     settingsTitleText.Parent =
         settingsTitleBar
+
+    --=========================================================
+    -- Settings Controls
+    --=========================================================
 
     settingsMinimizeButton =
         createXPButton(
@@ -2279,92 +2662,28 @@ local function createSettingsWindow(parent)
             63
         )
 
-    local minText =
-        Instance.new("TextLabel")
+    -- Same icons as main window.
+    createWindowControlIcon(
+        settingsMinimizeButton,
+        "minimize",
+        57
+    )
 
-    minText.BackgroundTransparency = 1
-    minText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
+    createWindowControlIcon(
+        settingsMaximizeButton,
+        "maximize",
+        57
+    )
 
-    minText.Font =
-        XP_FONT_BOLD
+    createWindowControlIcon(
+        settingsCloseButton,
+        "close",
+        57
+    )
 
-    minText.Text = "_"
-    minText.TextSize = 12
-
-    minText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    minText.ZIndex = 57
-    minText.Parent =
-        settingsMinimizeButton
-
-    local maxText =
-        Instance.new("TextLabel")
-
-    maxText.BackgroundTransparency = 1
-    maxText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    maxText.Font =
-        XP_FONT_BOLD
-
-    maxText.Text = "□"
-    maxText.TextSize = 12
-
-    maxText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    maxText.ZIndex = 57
-    maxText.Parent =
-        settingsMaximizeButton
-
-    local closeText =
-        Instance.new("TextLabel")
-
-    closeText.BackgroundTransparency = 1
-    closeText.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    closeText.Font =
-        XP_FONT_BOLD
-
-    closeText.Text = "×"
-    closeText.TextSize = 15
-
-    closeText.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    closeText.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    closeText.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    closeText.ZIndex = 57
-    closeText.Parent =
-        settingsCloseButton
+    --=========================================================
+    -- Settings Content
+    --=========================================================
 
     settingsContent =
         Instance.new("Frame")
@@ -2384,7 +2703,9 @@ local function createSettingsWindow(parent)
         )
 
     settingsContent.BackgroundTransparency = 1
+
     settingsContent.ZIndex = 52
+
     settingsContent.Parent =
         settingsWindow
 
@@ -2413,10 +2734,12 @@ local function createSettingsWindow(parent)
         )
 
     infoBox.BorderSizePixel = 1
+
     infoBox.BorderColor3 =
         XP.BorderDark
 
     infoBox.ZIndex = 53
+
     infoBox.Parent =
         settingsContent
 
@@ -2457,8 +2780,13 @@ local function createSettingsWindow(parent)
         Enum.TextYAlignment.Center
 
     infoText.ZIndex = 54
+
     infoText.Parent =
         infoBox
+
+    --=========================================================
+    -- Auto Equip
+    --=========================================================
 
     autoEquipButton =
         createXPButton(
@@ -2500,10 +2828,12 @@ local function createSettingsWindow(parent)
         )
 
     checkbox.BorderSizePixel = 1
+
     checkbox.BorderColor3 =
         XP.BorderDark
 
     checkbox.ZIndex = 54
+
     checkbox.Parent =
         autoEquipButton
 
@@ -2522,6 +2852,7 @@ local function createSettingsWindow(parent)
         XP_FONT_BOLD
 
     autoEquipCheck.Text = "✓"
+
     autoEquipCheck.TextSize = 13
 
     autoEquipCheck.TextColor3 =
@@ -2534,6 +2865,7 @@ local function createSettingsWindow(parent)
         Enum.TextYAlignment.Center
 
     autoEquipCheck.ZIndex = 55
+
     autoEquipCheck.Parent =
         checkbox
 
@@ -2563,6 +2895,7 @@ local function createSettingsWindow(parent)
         "Auto-Equip Cannon"
 
     autoText.TextSize = 11
+
     autoText.TextColor3 =
         XP.Text
 
@@ -2570,6 +2903,7 @@ local function createSettingsWindow(parent)
         Enum.TextXAlignment.Left
 
     autoText.ZIndex = 54
+
     autoText.Parent =
         autoEquipButton
 
@@ -2607,6 +2941,7 @@ local function createSettingsWindow(parent)
         Enum.TextXAlignment.Left
 
     autoHint.ZIndex = 54
+
     autoHint.Parent =
         autoEquipButton
 
@@ -2640,6 +2975,10 @@ local function createSettingsWindow(parent)
         end
     )
 
+    --=========================================================
+    -- Settings Resize Handle
+    --=========================================================
+
     settingsResizeHandle =
         Instance.new("Frame")
 
@@ -2667,7 +3006,9 @@ local function createSettingsWindow(parent)
         )
 
     settingsResizeHandle.BackgroundTransparency = 1
+
     settingsResizeHandle.BorderSizePixel = 0
+
     settingsResizeHandle.ZIndex = 70
 
     settingsResizeHandle.Parent =
@@ -2688,6 +3029,10 @@ local function createSettingsWindow(parent)
         SETTINGS_MAX_HEIGHT,
         "settings"
     )
+
+    --=========================================================
+    -- Settings Minimize
+    --=========================================================
 
     settingsMinimizeButton.MouseButton1Click:Connect(
         function()
@@ -2738,6 +3083,10 @@ local function createSettingsWindow(parent)
             end
         end
     )
+
+    --=========================================================
+    -- Settings Maximize
+    --=========================================================
 
     settingsMaximizeButton.MouseButton1Click:Connect(
         function()
@@ -2815,6 +3164,10 @@ local function createSettingsWindow(parent)
             end
         end
     )
+
+    --=========================================================
+    -- Settings Close
+    --=========================================================
 
     settingsCloseButton.MouseButton1Click:Connect(
         function()
@@ -2943,18 +3296,18 @@ local function createMainWindow(parent)
         XP.WindowOuter
 
     mainWindow.BorderSizePixel = 0
-    mainWindow.ClipsDescendants = true
 
-    mainWindow.Parent = parent
+    mainWindow.ClipsDescendants =
+        true
+
+    mainWindow.Parent =
+        parent
 
     addCorner(
         mainWindow,
         7
     )
 
-    -- Single outer blue border.
-    -- Removed the previous extra inner border because
-    -- it caused the background/border overlap.
     addStroke(
         mainWindow,
         XP.TitleBlueDark,
@@ -2974,7 +3327,7 @@ local function createMainWindow(parent)
         mainNormalSize
 
     --=========================================================
-    -- Title Bar
+    -- Main Title Bar
     --=========================================================
 
     mainTitleBar =
@@ -2998,6 +3351,7 @@ local function createMainWindow(parent)
         XP.TitleBlueTop
 
     mainTitleBar.BorderSizePixel = 0
+
     mainTitleBar.ZIndex = 10
 
     mainTitleBar.Parent =
@@ -3037,7 +3391,9 @@ local function createMainWindow(parent)
         XP.TitleBlueBottom
 
     titleCover.BorderSizePixel = 0
+
     titleCover.ZIndex = 10
+
     titleCover.Parent =
         mainTitleBar
 
@@ -3079,7 +3435,7 @@ local function createMainWindow(parent)
     title.Text =
         "SexyBlaster9000"
 
-    title.TextSize = 13
+    title.TextSize = 12
 
     title.TextColor3 =
         Color3.fromRGB(
@@ -3095,9 +3451,10 @@ local function createMainWindow(parent)
         Enum.TextYAlignment.Center
 
     title.TextStrokeTransparency =
-        0.65
+        1
 
     title.ZIndex = 15
+
     title.Parent =
         mainTitleBar
 
@@ -3139,11 +3496,12 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Right
 
     version.ZIndex = 15
+
     version.Parent =
         mainTitleBar
 
     --=========================================================
-    -- Main Window Buttons
+    -- Main Window Controls
     --=========================================================
 
     mainMinimizeButton =
@@ -3218,142 +3576,24 @@ local function createMainWindow(parent)
             63
         )
 
-    --=========================================================
-    -- Centered Minimize Icon
-    --=========================================================
-
-    local minIcon =
-        Instance.new("Frame")
-
-    minIcon.Name =
-        "MinimizeIcon"
-
-    minIcon.Size =
-        UDim2.fromOffset(
-            9,
-            2
-        )
-
-    minIcon.AnchorPoint =
-        Vector2.new(
-            0.5,
-            0.5
-        )
-
-    minIcon.Position =
-        UDim2.fromScale(
-            0.5,
-            0.5
-        )
-
-    minIcon.BackgroundColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    minIcon.BorderSizePixel = 0
-
-    minIcon.ZIndex = 18
-    minIcon.Parent =
-        mainMinimizeButton
-
-    --=========================================================
-    -- Centered Maximize Icon
-    --=========================================================
-
-    local maxIcon =
-        Instance.new("Frame")
-
-    maxIcon.Name =
-        "MaximizeIcon"
-
-    maxIcon.Size =
-        UDim2.fromOffset(
-            9,
-            8
-        )
-
-    maxIcon.AnchorPoint =
-        Vector2.new(
-            0.5,
-            0.5
-        )
-
-    maxIcon.Position =
-        UDim2.fromScale(
-            0.5,
-            0.5
-        )
-
-    maxIcon.BackgroundTransparency = 1
-
-    maxIcon.BorderSizePixel = 0
-
-    maxIcon.ZIndex = 18
-    maxIcon.Parent =
-        mainMaximizeButton
-
-    addStroke(
-        maxIcon,
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        ),
-        1
+    -- Same exact icons used by settings.
+    createWindowControlIcon(
+        mainMinimizeButton,
+        "minimize",
+        18
     )
 
-    --=========================================================
-    -- Centered Close Icon
-    --=========================================================
+    createWindowControlIcon(
+        mainMaximizeButton,
+        "maximize",
+        18
+    )
 
-    local closeIcon =
-        Instance.new("TextLabel")
-
-    closeIcon.Name =
-        "CloseIcon"
-
-    closeIcon.BackgroundTransparency = 1
-
-    closeIcon.Size =
-        UDim2.fromScale(
-            1,
-            1
-        )
-
-    closeIcon.Position =
-        UDim2.fromScale(
-            0,
-            0
-        )
-
-    closeIcon.Font =
-        Enum.Font.ArialBold
-
-    closeIcon.Text =
-        "×"
-
-    closeIcon.TextSize =
-        15
-
-    closeIcon.TextColor3 =
-        Color3.fromRGB(
-            255,
-            255,
-            255
-        )
-
-    closeIcon.TextXAlignment =
-        Enum.TextXAlignment.Center
-
-    closeIcon.TextYAlignment =
-        Enum.TextYAlignment.Center
-
-    closeIcon.ZIndex = 18
-    closeIcon.Parent =
-        mainCloseButton
+    createWindowControlIcon(
+        mainCloseButton,
+        "close",
+        18
+    )
 
     --=========================================================
     -- Main Content
@@ -3377,6 +3617,7 @@ local function createMainWindow(parent)
         )
 
     mainContent.BackgroundTransparency = 1
+
     mainContent.ZIndex = 5
 
     mainContent.Parent =
@@ -3426,10 +3667,12 @@ local function createMainWindow(parent)
         )
 
     fireIconBox.BorderSizePixel = 1
+
     fireIconBox.BorderColor3 =
         XP.BorderDark
 
     fireIconBox.ZIndex = 7
+
     fireIconBox.Parent =
         firingButton
 
@@ -3437,6 +3680,7 @@ local function createMainWindow(parent)
         Instance.new("TextLabel")
 
     fireIcon.BackgroundTransparency = 1
+
     fireIcon.Size =
         UDim2.fromScale(
             1,
@@ -3460,6 +3704,7 @@ local function createMainWindow(parent)
         Enum.TextYAlignment.Center
 
     fireIcon.ZIndex = 8
+
     fireIcon.Parent =
         fireIconBox
 
@@ -3497,6 +3742,7 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Left
 
     fireTitle.ZIndex = 7
+
     fireTitle.Parent =
         firingButton
 
@@ -3534,6 +3780,7 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Left
 
     fireHint.ZIndex = 7
+
     fireHint.Parent =
         firingButton
 
@@ -3563,6 +3810,7 @@ local function createMainWindow(parent)
         )
 
     statusContainer.ZIndex = 8
+
     statusContainer.Parent =
         firingButton
 
@@ -3613,6 +3861,7 @@ local function createMainWindow(parent)
         Enum.TextYAlignment.Center
 
     statusValue.LayoutOrder = 1
+
     statusValue.ZIndex = 9
 
     statusValue.Parent =
@@ -3630,6 +3879,7 @@ local function createMainWindow(parent)
     statusDot.BorderSizePixel = 1
 
     statusDot.LayoutOrder = 2
+
     statusDot.ZIndex = 9
 
     statusDot.Parent =
@@ -3679,10 +3929,12 @@ local function createMainWindow(parent)
         )
 
     targetIconBox.BorderSizePixel = 1
+
     targetIconBox.BorderColor3 =
         XP.BorderDark
 
     targetIconBox.ZIndex = 7
+
     targetIconBox.Parent =
         targetButton
 
@@ -3692,6 +3944,7 @@ local function createMainWindow(parent)
         )
 
     targetBoxAspect.AspectRatio = 1
+
     targetBoxAspect.Parent =
         targetIconBox
 
@@ -3713,6 +3966,7 @@ local function createMainWindow(parent)
         Enum.ScaleType.Fit
 
     targetIcon.ZIndex = 8
+
     targetIcon.Parent =
         targetIconBox
 
@@ -3722,6 +3976,7 @@ local function createMainWindow(parent)
         )
 
     targetIconAspect.AspectRatio = 1
+
     targetIconAspect.Parent =
         targetIcon
 
@@ -3751,6 +4006,7 @@ local function createMainWindow(parent)
         "Current Target"
 
     targetTitle.TextSize = 11
+
     targetTitle.TextColor3 =
         XP.Text
 
@@ -3758,6 +4014,7 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Left
 
     targetTitle.ZIndex = 7
+
     targetTitle.Parent =
         targetButton
 
@@ -3801,11 +4058,12 @@ local function createMainWindow(parent)
         Enum.TextTruncate.AtEnd
 
     targetValue.ZIndex = 7
+
     targetValue.Parent =
         targetButton
 
     --=========================================================
-    -- Settings
+    -- Settings Button
     --=========================================================
 
     settingsButton =
@@ -3856,6 +4114,7 @@ local function createMainWindow(parent)
         Enum.ScaleType.Fit
 
     gear.ZIndex = 7
+
     gear.Parent =
         settingsButton
 
@@ -3865,6 +4124,7 @@ local function createMainWindow(parent)
         )
 
     gearAspect.AspectRatio = 1
+
     gearAspect.Parent =
         gear
 
@@ -3902,6 +4162,7 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Left
 
     settingsTitle.ZIndex = 7
+
     settingsTitle.Parent =
         settingsButton
 
@@ -3939,11 +4200,12 @@ local function createMainWindow(parent)
         Enum.TextXAlignment.Left
 
     settingsHint.ZIndex = 7
+
     settingsHint.Parent =
         settingsButton
 
     --=========================================================
-    -- Invisible Resize Handle
+    -- Main Resize Handle
     --=========================================================
 
     mainResizeHandle =
@@ -3973,9 +4235,11 @@ local function createMainWindow(parent)
         )
 
     mainResizeHandle.BackgroundTransparency = 1
+
     mainResizeHandle.BorderSizePixel = 0
 
     mainResizeHandle.ZIndex = 30
+
     mainResizeHandle.Parent =
         mainWindow
 
@@ -4021,6 +4285,7 @@ local function createMainWindow(parent)
 
             State.isRunning = true
             State.shootingEnabled = true
+
             State.shootingErrors = 0
             State.lastFireTime = 0
 
@@ -4029,7 +4294,7 @@ local function createMainWindow(parent)
     )
 
     --=========================================================
-    -- Minimize
+    -- Main Minimize
     --=========================================================
 
     mainMinimizeButton.MouseButton1Click:Connect(
@@ -4090,7 +4355,7 @@ local function createMainWindow(parent)
     )
 
     --=========================================================
-    -- Maximize
+    -- Main Maximize
     --=========================================================
 
     mainMaximizeButton.MouseButton1Click:Connect(
@@ -4179,7 +4444,7 @@ local function createMainWindow(parent)
     )
 
     --=========================================================
-    -- Close
+    -- Main Close
     --=========================================================
 
     mainCloseButton.MouseButton1Click:Connect(
@@ -4436,6 +4701,7 @@ function API.Start()
 
     State.isRunning = true
     State.shootingEnabled = true
+
     State.shootingErrors = 0
     State.lastFireTime = 0
 
@@ -4591,97 +4857,103 @@ updateAutoEquip()
 --// Main Firing Worker
 --// =========================================================
 
-task.spawn(function()
+task.spawn(
+    function()
 
-    while not guiClosed do
+        while not guiClosed do
 
-        State.playerAlive =
-            isPlayerAlive()
+            State.playerAlive =
+                isPlayerAlive()
 
-        if State.isRunning
-            and State.playerAlive then
+            if State.isRunning
+                and State.playerAlive then
 
-            if State.autoEquip then
-                autoEquipTool()
+                if State.autoEquip then
+                    autoEquipTool()
+                end
+
+                if State.shootingEnabled then
+                    attemptFire()
+                end
+
+            else
+
+                State.currentTarget = nil
+                State.currentTargetName = "None"
             end
 
-            if State.shootingEnabled then
-                attemptFire()
-            end
-
-        else
-
-            State.currentTarget = nil
-            State.currentTargetName = "None"
+            RunService.Heartbeat:Wait()
         end
-
-        RunService.Heartbeat:Wait()
     end
-end)
+)
 
 --// =========================================================
 --// Target Worker
 --// =========================================================
 
-task.spawn(function()
+task.spawn(
+    function()
 
-    while not guiClosed do
+        while not guiClosed do
 
-        if State.isRunning
-            and State.playerAlive
-            and State.shootingEnabled then
+            if State.isRunning
+                and State.playerAlive
+                and State.shootingEnabled then
 
-            local target =
-                selectTarget()
+                local target =
+                    selectTarget()
 
-            State.currentTarget =
-                target
+                State.currentTarget =
+                    target
 
-            if target then
+                if target then
 
-                State.currentTargetName =
-                    target.Name
-                    or (
-                        target.Model
-                        and target.Model.Name
-                    )
-                    or "None"
+                    State.currentTargetName =
+                        target.Name
+                        or (
+                            target.Model
+                            and target.Model.Name
+                        )
+                        or "None"
+
+                else
+
+                    State.currentTargetName =
+                        "None"
+                end
 
             else
 
-                State.currentTargetName =
-                    "None"
+                State.currentTarget = nil
+                State.currentTargetName = "None"
             end
 
-        else
-
-            State.currentTarget = nil
-            State.currentTargetName = "None"
+            task.wait(0.3)
         end
-
-        task.wait(0.3)
     end
-end)
+)
 
 --// =========================================================
 --// UI Refresh
 --// =========================================================
 
-task.spawn(function()
+task.spawn(
+    function()
 
-    while gui
-        and gui.Parent
-        and not guiClosed do
+        while gui
+            and gui.Parent
+            and not guiClosed do
 
-        State.playerAlive =
-            isPlayerAlive()
+            State.playerAlive =
+                isPlayerAlive()
 
-        updateStatus()
-        updateTarget()
-        updateAutoEquip()
+            updateStatus()
+            updateTarget()
+            updateAutoEquip()
 
-        task.wait(0.15)
+            task.wait(0.15)
+        end
     end
-end)
+)
 
 return API
