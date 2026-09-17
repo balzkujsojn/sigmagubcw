@@ -84,6 +84,8 @@ local FURNITURE_GRID_TOP_Y =
 
 -- The center part is 4 studs tall, so its center sits
 -- half a cell above the surface of the workspace base.
+-- The Y offset is derived from the selected model's actual center
+-- height now, so 4x4x4 and 8x8x8 center parts both sit correctly.
 local FURNITURE_GRID_CENTER_Y_OFFSET =
     FURNITURE_GRID_SIZE / 2
 
@@ -1781,6 +1783,97 @@ local function getDominantGridStepFromNormal(
     )
 end
 
+local function getCenterHalfExtents(centerPart)
+
+    if not centerPart then
+        return nil
+    end
+
+    local size = centerPart.Size
+
+    return Vector3.new(
+        math.abs(size.X) / 2,
+        math.abs(size.Y) / 2,
+        math.abs(size.Z) / 2
+    )
+end
+
+local function getPartExtentAlongWorldNormal(
+    part,
+    worldNormal
+)
+
+    if not part or not worldNormal then
+        return nil
+    end
+
+    local halfExtents =
+        getCenterHalfExtents(part)
+
+    if not halfExtents then
+        return nil
+    end
+
+    local right = part.CFrame.RightVector
+    local up = part.CFrame.UpVector
+    local look = part.CFrame.LookVector
+
+    return
+        math.abs(worldNormal:Dot(right)) * halfExtents.X +
+        math.abs(worldNormal:Dot(up)) * halfExtents.Y +
+        math.abs(worldNormal:Dot(look)) * halfExtents.Z
+end
+
+local function getSelectedFurnitureCenterExtentAlongWorldNormal(
+    model,
+    worldNormal
+)
+
+    if not model or not worldNormal then
+        return nil
+    end
+
+    local centerPart =
+        getFurnitureCenterPart(model)
+
+    if not centerPart then
+        return nil
+    end
+
+    local halfExtents =
+        getCenterHalfExtents(centerPart)
+
+    if not halfExtents then
+        return nil
+    end
+
+    -- The placement system rotates furniture around the Y axis in
+    -- 90-degree steps. Rotate the center's local axes the same way
+    -- when determining how far its boundary extends.
+    local rotationCFrame =
+        getFurnitureRotationCFrame()
+
+    local right =
+        rotationCFrame:VectorToWorldSpace(
+            Vector3.new(1, 0, 0)
+        )
+
+    local up =
+        rotationCFrame:VectorToWorldSpace(
+            Vector3.new(0, 1, 0)
+        )
+
+    local look =
+        rotationCFrame:VectorToWorldSpace(
+            Vector3.new(0, 0, -1)
+        )
+
+    return
+        math.abs(worldNormal:Dot(right)) * halfExtents.X +
+        math.abs(worldNormal:Dot(up)) * halfExtents.Y +
+        math.abs(worldNormal:Dot(look)) * halfExtents.Z
+end
+
 local function getFurnitureGridPlacementCFrame(
     model
 )
@@ -1818,11 +1911,6 @@ local function getFurnitureGridPlacementCFrame(
             return nil
         end
 
-        -- When hovering an already placed furniture model, its
-        -- center marks the current grid cell. Move exactly one
-        -- 4-stud cell toward the surface being pointed at.
-        -- This makes top/side stacking work for every furniture
-        -- model that has the shared "center" part.
         local worldNormal =
             getTargetSurfaceWorldNormal(target)
 
@@ -1835,14 +1923,37 @@ local function getFurnitureGridPlacementCFrame(
             return nil
         end
 
+        -- The grid is based on the shared `center` part.  The center
+        -- can be 4x4x4, 8x8x8, or another size, so use the actual
+        -- half-extents of both centers rather than a fixed 4-stud step.
+        -- This makes the two center volumes meet exactly on the side
+        -- that the player is pointing at.
+        local targetExtent =
+            getPartExtentAlongWorldNormal(
+                targetCenter,
+                gridStep
+            )
+
+        local newExtent =
+            getSelectedFurnitureCenterExtentAlongWorldNormal(
+                model,
+                gridStep
+            )
+
+        if not targetExtent or not newExtent then
+            return nil
+        end
+
         desiredCenterPosition =
             targetCenter.Position +
-            (gridStep * FURNITURE_GRID_SIZE)
+            (gridStep * (targetExtent + newExtent))
 
     else
 
         -- The empty build surface is the TOP of the 731 x 2 x 731
-        -- workspace base. The center part's bottom face sits on it.
+        -- workspace base.  The selected model's center bottom face
+        -- sits directly on that surface, so its vertical offset is
+        -- half of the center's actual Y size.
         local hitPosition =
             mouse.Hit.Position
 
@@ -1858,11 +1969,18 @@ local function getFurnitureGridPlacementCFrame(
                 FURNITURE_GRID_BASE_CENTER.Z
             )
 
+        local centerHalfExtents =
+            getCenterHalfExtents(centerPart)
+
+        if not centerHalfExtents then
+            return nil
+        end
+
         desiredCenterPosition =
             Vector3.new(
                 snappedX,
                 getFurnitureGridBaseTopY() +
-                    FURNITURE_GRID_CENTER_Y_OFFSET,
+                    centerHalfExtents.Y,
                 snappedZ
             )
     end
