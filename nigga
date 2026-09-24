@@ -200,6 +200,7 @@ end
 local updateFurnitureScrollbar
 local furnitureScrollBy
 
+local createErrorWindow
 local showCannonMissingError
 local showFurnitureMissingError
 local setFurnitureStatus
@@ -4736,7 +4737,7 @@ end
 --// Error Window
 --// =========================================================
 
-local function createErrorWindow(
+createErrorWindow = function(
     message
 )
 
