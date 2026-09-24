@@ -29,7 +29,14 @@ local mouse = player:GetMouse()
 local CONFIG = {
     FIRE_RATE = 0.05,
     TOOL_NAME = "Equinox Cannon",
-    REMOTE_NAME = "RemoteFunction"
+    REMOTE_NAME = "RemoteFunction",
+    TARGET_REFRESH_INTERVAL = 0.12,
+    ENEMY_FULL_SCAN_INTERVAL = 1,
+    FIRE_WORKER_INTERVAL = 0.025,
+    PLAYER_STATE_INTERVAL = 0.25,
+    AUTO_EQUIP_CHECK_INTERVAL = 0.25,
+    UI_REFRESH_INTERVAL = 0.25,
+    PREVIEW_UPDATE_INTERVAL = 1 / 30
 }
 
 local IGNORE_ENEMIES = {
@@ -122,9 +129,10 @@ local State = {
     lastFireTime = 0,
 
     lastToolEquipTime = 0,
-    toolEquipCooldown = 2,
+    toolEquipCooldown = 0.5,
 
-    autoEquip = false
+    autoEquip = false,
+    electricSheepCheat = false
 }
 
 --// =========================================================
@@ -156,11 +164,34 @@ local furnitureState = {
     scrollbarStartCanvasY = 0
 }
 
-local furnitureBaseFolder =
-    Workspace
-        :WaitForChild("Bases")
-        :WaitForChild("Base1")
-        :WaitForChild("objects")
+local furnitureBaseFolder = nil
+
+local function getFurnitureBaseFolder()
+
+    if furnitureBaseFolder
+        and furnitureBaseFolder.Parent then
+
+        return furnitureBaseFolder
+    end
+
+    local bases =
+        Workspace:FindFirstChild("Bases")
+
+    local base =
+        bases
+        and bases:FindFirstChild("Base1")
+
+    local objects =
+        base
+        and base:FindFirstChild("objects")
+
+    if objects then
+        furnitureBaseFolder =
+            objects
+    end
+
+    return objects
+end
 
 --// =========================================================
 --// Forward Declarations
@@ -178,9 +209,15 @@ local setFurnitureStatus
 --// =========================================================
 
 local cache = {
-    workspaceChildren = {},
-    lastWorkspaceUpdate = 0,
-    workspaceUpdateInterval = 0.5
+    enemyModels = {},
+    enemyData = {},
+    enemyIndex = {},
+    lastEnemyFullScan = 0,
+    enemyFullScanInterval = CONFIG.ENEMY_FULL_SCAN_INTERVAL,
+    toolData = nil,
+    toolCharacter = nil,
+    lastPlayerStateCheck = 0,
+    lastAutoEquipCheck = 0
 }
 
 local recoveryToken = 0
@@ -219,13 +256,13 @@ local MAIN_MINIMIZED_HEIGHT = 31
 --// =========================================================
 
 local SETTINGS_DEFAULT_WIDTH = 270
-local SETTINGS_DEFAULT_HEIGHT = 215
+local SETTINGS_DEFAULT_HEIGHT = 256
 
 local SETTINGS_MIN_WIDTH = 220
-local SETTINGS_MIN_HEIGHT = 180
+local SETTINGS_MIN_HEIGHT = 220
 
 local SETTINGS_MAX_WIDTH = 500
-local SETTINGS_MAX_HEIGHT = 360
+local SETTINGS_MAX_HEIGHT = 420
 
 --// =========================================================
 --// Furniture Window
@@ -763,7 +800,7 @@ local function openFurnitureTypeDropdown()
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            134
+            175
         )
 
     furnitureTypeDropdown.Size =
@@ -1407,6 +1444,96 @@ local function hasEquinoxCannon()
     end
 
     return false
+end
+
+local function autoEquipTool(
+    force
+)
+
+    if not State.playerAlive then
+        return false
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        return false
+    end
+
+    local equipped =
+        character:FindFirstChild(
+            CONFIG.TOOL_NAME
+        )
+
+    if equipped
+        and equipped:IsA("Tool") then
+
+        return true
+    end
+
+    local now =
+        os.clock()
+
+    if not force
+        and now - State.lastToolEquipTime
+        < State.toolEquipCooldown then
+
+        return false
+    end
+
+    local humanoid =
+        character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid
+        or humanoid.Health <= 0 then
+
+        return false
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    local tool =
+        backpack
+        and backpack:FindFirstChild(
+            CONFIG.TOOL_NAME
+        )
+
+    if not tool
+        or not tool:IsA("Tool") then
+
+        return false
+    end
+
+    local success =
+        pcall(
+            function()
+
+                humanoid:EquipTool(
+                    tool
+                )
+            end
+        )
+
+    if not success then
+        return false
+    end
+
+    State.lastToolEquipTime =
+        now
+
+    cache.toolData =
+        nil
+
+    cache.toolCharacter =
+        character
+
+    return true
 end
 
 local function getFurnitureCategory(
@@ -2252,9 +2379,25 @@ local function rotateSelectedFurniture()
     )
 end
 
--- Keep the ghost locked to the mouse while selected.
+local previewUpdateAccumulator = 0
+
 RunService.RenderStepped:Connect(
-    updateFurniturePreview
+    function(deltaTime)
+
+        previewUpdateAccumulator +=
+            deltaTime
+
+        if previewUpdateAccumulator
+            < CONFIG.PREVIEW_UPDATE_INTERVAL then
+
+            return
+        end
+
+        previewUpdateAccumulator =
+            0
+
+        updateFurniturePreview()
+    end
 )
 
 UserInputService.InputBegan:Connect(
@@ -3149,6 +3292,22 @@ local function furnitureMouseSpawn()
             getFurnitureRotationCFrame()
     end
 
+    local baseFolder =
+        getFurnitureBaseFolder()
+
+    if not baseFolder then
+
+        furnitureState.waitingForClick =
+            true
+
+        setFurnitureStatus(
+            "Base objects folder not found",
+            "error"
+        )
+
+        return
+    end
+
     local args = {
 
         [1] =
@@ -3160,7 +3319,7 @@ local function furnitureMouseSpawn()
                 modelToSpawn,
 
             [2] =
-                furnitureBaseFolder,
+                baseFolder,
 
             [3] =
                 placementCFrame,
@@ -3350,23 +3509,23 @@ mouse.Button1Down:Connect(
 --// Target Detection
 --// =========================================================
 
+local TARGET_PART_NAMES = {
+
+    "HumanoidRootPart",
+    "Head",
+    "Torso",
+    "UpperTorso",
+    "LowerTorso",
+    "Chest",
+    "Body"
+}
+
 local function getTargetPart(
     model
 )
 
-    local possibleParts = {
-
-        "HumanoidRootPart",
-        "Head",
-        "Torso",
-        "UpperTorso",
-        "LowerTorso",
-        "Chest",
-        "Body"
-    }
-
     for _, partName in ipairs(
-        possibleParts
+        TARGET_PART_NAMES
     ) do
 
         local part =
@@ -3386,7 +3545,6 @@ local function getTargetPart(
     ) do
 
         if child:IsA("BasePart") then
-
             return child
         end
     end
@@ -3394,109 +3552,233 @@ local function getTargetPart(
     return nil
 end
 
-local function isPlayerCharacter(
+local function removeEnemyModel(
     model
 )
 
-    for _, plr in ipairs(
-        Players:GetPlayers()
-    ) do
+    local index =
+        cache.enemyIndex[
+            model
+        ]
 
-        if plr.Character ==
+    if not index then
+        return
+    end
+
+    local lastIndex =
+        #cache.enemyModels
+
+    local lastModel =
+        cache.enemyModels[
+            lastIndex
+        ]
+
+    if index ~= lastIndex then
+
+        cache.enemyModels[
+            index
+        ] =
+            lastModel
+
+        cache.enemyIndex[
+            lastModel
+        ] =
+            index
+    end
+
+    cache.enemyModels[
+        lastIndex
+    ] =
+        nil
+
+    cache.enemyIndex[
+        model
+    ] =
+        nil
+
+    cache.enemyData[
+        model
+    ] =
+        nil
+
+    if State.currentTarget
+        and State.currentTarget.Model ==
             model then
 
-            return true
+        State.currentTarget =
+            nil
+
+        State.currentTargetName =
+            "None"
+    end
+end
+
+local function registerEnemyModel(
+    model
+)
+
+    if not model
+        or not model:IsA("Model")
+        or model.Parent ~= workspace then
+
+        return false
+    end
+
+    if IGNORE_ENEMIES[
+        model.Name
+    ] then
+
+        return false
+    end
+
+    if cache.enemyIndex[
+        model
+    ] then
+
+        return true
+    end
+
+    if Players:GetPlayerFromCharacter(
+        model
+    ) then
+
+        return false
+    end
+
+    local humanoid =
+        model:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid
+        or humanoid.Health <= 0 then
+
+        return false
+    end
+
+    local targetPart =
+        getTargetPart(
+            model
+        )
+
+    if not targetPart then
+        return false
+    end
+
+    local data = {
+
+        Model =
+            model,
+
+        Humanoid =
+            humanoid,
+
+        TargetPart =
+            targetPart,
+
+        Position =
+            targetPart.Position,
+
+        Name =
+            model.Name
+    }
+
+    cache.enemyModels[
+        #cache.enemyModels + 1
+    ] =
+        model
+
+    cache.enemyIndex[
+        model
+    ] =
+        #cache.enemyModels
+
+    cache.enemyData[
+        model
+    ] =
+        data
+
+    return true
+end
+
+local function refreshEnemyCache(
+    force
+)
+
+    local now =
+        os.clock()
+
+    if not force
+        and now -
+            cache.lastEnemyFullScan
+        < cache.enemyFullScanInterval then
+
+        return
+    end
+
+    cache.lastEnemyFullScan =
+        now
+
+    for _, child in ipairs(
+        workspace:GetChildren()
+    ) do
+
+        if child:IsA("Model")
+            and not cache.enemyIndex[
+                child
+            ] then
+
+            registerEnemyModel(
+                child
+            )
         end
     end
 
-    return false
-end
+    local validModels =
+        {}
 
-local function findEnemies()
-
-    if not State.playerAlive
-        or not State.shootingEnabled then
-
-        return {}
-    end
-
-    local now =
-        tick()
-
-    if now - cache.lastWorkspaceUpdate
-        > cache.workspaceUpdateInterval then
-
-        cache.workspaceChildren =
-            workspace:GetChildren()
-
-        cache.lastWorkspaceUpdate =
-            now
-    end
-
-    local enemies =
+    local validIndex =
         {}
 
     for _, model in ipairs(
-        cache.workspaceChildren
+        cache.enemyModels
     ) do
 
-        if model:IsA("Model")
-            and model.Parent ==
-                workspace then
+        local data =
+            cache.enemyData[
+                model
+            ]
 
-            local humanoid =
-                model:FindFirstChildOfClass(
-                    "Humanoid"
-                )
+        if model.Parent ==
+            workspace
+            and data
+            and data.Humanoid
+            and data.Humanoid.Parent
+            and data.Humanoid.Health > 0 then
 
-            if humanoid
-                and humanoid.Health > 0 then
+            validModels[
+                #validModels + 1
+            ] =
+                model
 
-                if IGNORE_ENEMIES[
-                    model.Name
-                ] then
+            validIndex[
+                model
+            ] =
+                #validModels
+        else
 
-                    continue
-                end
-
-                if not isPlayerCharacter(
-                    model
-                ) then
-
-                    local targetPart =
-                        getTargetPart(
-                            model
-                        )
-
-                    if targetPart then
-
-                        table.insert(
-                            enemies,
-                            {
-
-                                Model =
-                                    model,
-
-                                Humanoid =
-                                    humanoid,
-
-                                TargetPart =
-                                    targetPart,
-
-                                Position =
-                                    targetPart.Position,
-
-                                Name =
-                                    model.Name
-                            }
-                        )
-                    end
-                end
-            end
+            cache.enemyData[
+                model
+            ] =
+                nil
         end
     end
 
-    return enemies
+    cache.enemyModels =
+        validModels
+
+    cache.enemyIndex =
+        validIndex
 end
 
 local function selectTarget()
@@ -3507,59 +3789,91 @@ local function selectTarget()
         return nil
     end
 
-    local enemies =
-        findEnemies()
-
-    if #enemies == 0 then
-        return nil
-    end
+    refreshEnemyCache(
+        false
+    )
 
     local character =
         player.Character
 
-    if not character then
-        return enemies[1]
-    end
-
     local humanoidRootPart =
-        character:FindFirstChild(
+        character
+        and character:FindFirstChild(
             "HumanoidRootPart"
         )
 
-    if not humanoidRootPart then
-        return enemies[1]
-    end
-
     local playerPos =
-        humanoidRootPart.Position
+        humanoidRootPart
+        and humanoidRootPart.Position
+        or nil
 
     local closestEnemy =
-        enemies[1]
+        nil
 
-    local closestDistance =
+    local closestDistanceSquared =
         math.huge
 
-    for _, enemy in ipairs(
-        enemies
+    for _, model in ipairs(
+        cache.enemyModels
     ) do
 
-        if enemy.TargetPart
-            and enemy.TargetPart.Parent then
+        local data =
+            cache.enemyData[
+                model
+            ]
 
-            local distance =
-                (
-                    enemy.Position -
+        if data
+            and data.Humanoid
+            and data.Humanoid.Parent
+            and data.Humanoid.Health > 0
+            and model.Parent ==
+                workspace then
+
+            local targetPart =
+                data.TargetPart
+
+            if not targetPart
+                or not targetPart.Parent then
+
+                targetPart =
+                    getTargetPart(
+                        model
+                    )
+
+                data.TargetPart =
+                    targetPart
+            end
+
+            if targetPart then
+
+                local position =
+                    targetPart.Position
+
+                data.Position =
+                    position
+
+                if not playerPos then
+                    return data
+                end
+
+                local delta =
+                    position -
                     playerPos
-                ).Magnitude
 
-            if distance <
-                closestDistance then
+                local distanceSquared =
+                    delta:Dot(
+                        delta
+                    )
 
-                closestDistance =
-                    distance
+                if distanceSquared
+                    < closestDistanceSquared then
 
-                closestEnemy =
-                    enemy
+                    closestDistanceSquared =
+                        distanceSquared
+
+                    closestEnemy =
+                        data
+                end
             end
         end
     end
@@ -3586,6 +3900,33 @@ local function getValidTool()
         return nil
     end
 
+    if cache.toolCharacter ~=
+        character then
+
+        cache.toolCharacter =
+            character
+
+        cache.toolData =
+            nil
+    end
+
+    local cached =
+        cache.toolData
+
+    if cached
+        and cached.Tool
+        and cached.Tool.Parent ==
+            character
+        and cached.Remote
+        and cached.Remote.Parent ==
+            cached.Tool
+        and cached.Handle
+        and cached.Handle.Parent ==
+            cached.Tool then
+
+        return cached
+    end
+
     local tool =
         character:FindFirstChild(
             CONFIG.TOOL_NAME
@@ -3593,6 +3934,9 @@ local function getValidTool()
 
     if not tool
         or not tool:IsA("Tool") then
+
+        cache.toolData =
+            nil
 
         return nil
     end
@@ -3609,9 +3953,10 @@ local function getValidTool()
 
     if remote
         and handle
-        and remote:IsA("RemoteFunction") then
+        and remote:IsA("RemoteFunction")
+        and handle:IsA("BasePart") then
 
-        return {
+        cache.toolData = {
 
             Tool =
                 tool,
@@ -3622,7 +3967,12 @@ local function getValidTool()
             Handle =
                 handle
         }
+
+        return cache.toolData
     end
+
+    cache.toolData =
+        nil
 
     return nil
 end
@@ -3651,6 +4001,13 @@ local function attemptFire()
         getValidTool()
 
     if not toolData then
+
+        if State.autoEquip then
+
+            autoEquipTool(
+                false
+            )
+        end
 
         State.shootingErrors +=
             1
@@ -3860,6 +4217,389 @@ local function updateAutoEquip()
 
     autoEquipCheck.Visible =
         State.autoEquip == true
+end
+
+--// =========================================================
+--// Electric Sheep Armour Cheat
+--// =========================================================
+
+ESheep = {
+    SLEEP_ANIMATION_ID = "17234446600",
+    sleeping = false,
+    sleepStartTime = 0,
+    character = nil,
+    humanoid = nil,
+    animator = nil,
+    backpack = nil,
+    toolBeforeSleep = nil,
+    restoredInitialTool = false,
+    connections = {},
+    normalSleepTrack = nil
+}
+
+function updateElectricSheepCheat()
+    if not electricSheepCheck then
+        return
+    end
+
+    electricSheepCheck.Visible =
+        State.electricSheepCheat == true
+end
+
+function ESheep.disconnectCharacterConnections()
+    for _, connection in ipairs(ESheep.connections) do
+        if connection and connection.Connected then
+            connection:Disconnect()
+        end
+    end
+
+    table.clear(ESheep.connections)
+end
+
+function ESheep.getAnimationId(track)
+    if not track then
+        return nil
+    end
+
+    local id = nil
+
+    pcall(function()
+        id = track.Animation.AnimationId
+    end)
+
+    if type(id) ~= "string" then
+        return nil
+    end
+
+    return id:match("%d+")
+end
+
+function ESheep.stopSleepTrack(track)
+    if ESheep.getAnimationId(track) ~= ESheep.SLEEP_ANIMATION_ID then
+        return
+    end
+
+    pcall(function()
+        track:Stop(0)
+    end)
+end
+
+function ESheep.stopExistingSleepAnimation()
+    if not ESheep.animator then
+        return
+    end
+
+    for _, track in ipairs(ESheep.animator:GetPlayingAnimationTracks()) do
+        ESheep.stopSleepTrack(track)
+    end
+end
+
+function ESheep.stopNormalSleepTrack()
+    if ESheep.normalSleepTrack then
+        pcall(function()
+            ESheep.normalSleepTrack:Stop(0)
+        end)
+
+        ESheep.normalSleepTrack = nil
+    end
+end
+
+function ESheep.cancelPlatformStand()
+    if not State.electricSheepCheat
+        or not ESheep.sleeping
+        or not ESheep.humanoid
+        or not ESheep.humanoid.Parent then
+
+        return
+    end
+
+    if ESheep.humanoid.PlatformStand then
+        ESheep.humanoid.PlatformStand = false
+    end
+
+    if ESheep.humanoid:GetState() == Enum.HumanoidStateType.PlatformStanding then
+        pcall(function()
+            ESheep.humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        end)
+    end
+end
+
+function ESheep.removeTooSnoozing()
+    if not State.electricSheepCheat
+        or not ESheep.character then
+
+        return
+    end
+
+    local object = ESheep.character:FindFirstChild("TooSnoozing")
+
+    if object and object:IsA("LocalScript") then
+        pcall(function()
+            object:Destroy()
+        end)
+    end
+end
+
+function ESheep.restoreInitialTool()
+    if not State.electricSheepCheat
+        or not ESheep.sleeping
+        or ESheep.restoredInitialTool
+        or not ESheep.toolBeforeSleep
+        or not ESheep.backpack
+        or not ESheep.humanoid
+        or ESheep.humanoid.Health <= 0 then
+
+        return
+    end
+
+    if ESheep.toolBeforeSleep.Parent ~= ESheep.backpack then
+        return
+    end
+
+    ESheep.restoredInitialTool = true
+
+    pcall(function()
+        ESheep.humanoid:EquipTool(ESheep.toolBeforeSleep)
+    end)
+end
+
+function ESheep.beginSleep()
+    if not State.electricSheepCheat
+        or ESheep.sleeping
+        or not ESheep.character
+        or not ESheep.humanoid then
+
+        return
+    end
+
+    ESheep.sleeping = true
+    ESheep.sleepStartTime = os.clock()
+    ESheep.toolBeforeSleep = ESheep.character:FindFirstChildOfClass("Tool")
+    ESheep.restoredInitialTool = false
+
+    ESheep.stopNormalSleepTrack()
+    ESheep.removeTooSnoozing()
+    ESheep.cancelPlatformStand()
+    ESheep.stopExistingSleepAnimation()
+
+    task.spawn(function()
+        local restoreDeadline = os.clock() + 1
+
+        while State.electricSheepCheat
+            and ESheep.sleeping
+            and ESheep.character
+            and ESheep.character.Parent do
+
+            ESheep.cancelPlatformStand()
+            ESheep.stopExistingSleepAnimation()
+
+            if not ESheep.restoredInitialTool
+                and os.clock() <= restoreDeadline then
+
+                ESheep.restoreInitialTool()
+            end
+
+            task.wait(0.03)
+        end
+    end)
+end
+
+function ESheep.endSleep()
+    ESheep.sleeping = false
+    ESheep.toolBeforeSleep = nil
+    ESheep.restoredInitialTool = false
+    ESheep.stopNormalSleepTrack()
+end
+
+function ESheep.restoreNormalSleep()
+    ESheep.sleeping = false
+    ESheep.stopNormalSleepTrack()
+
+    if not ESheep.character
+        or not ESheep.humanoid
+        or not ESheep.humanoid.Parent
+        or not ESheep.character:FindFirstChild("ESheepSleeping") then
+
+        ESheep.toolBeforeSleep = nil
+        ESheep.restoredInitialTool = false
+        return
+    end
+
+    pcall(function()
+        ESheep.humanoid:UnequipTools()
+    end)
+
+    ESheep.humanoid.PlatformStand = true
+
+    if ESheep.animator then
+        pcall(function()
+            local animation = Instance.new("Animation")
+            animation.AnimationId = "rbxassetid://" .. ESheep.SLEEP_ANIMATION_ID
+
+            local track = ESheep.animator:LoadAnimation(animation)
+            track.Priority = Enum.AnimationPriority.Action
+            track:Play(0)
+
+            ESheep.normalSleepTrack = track
+            animation:Destroy()
+        end)
+    end
+
+    ESheep.toolBeforeSleep = nil
+    ESheep.restoredInitialTool = false
+end
+
+function ESheep.setEnabled(enabled)
+    State.electricSheepCheat = enabled == true
+    updateElectricSheepCheat()
+
+    if State.electricSheepCheat then
+        ESheep.stopNormalSleepTrack()
+
+        if ESheep.character
+            and ESheep.character:FindFirstChild("ESheepSleeping") then
+
+            ESheep.sleeping = false
+            ESheep.beginSleep()
+        end
+    else
+        if ESheep.character
+            and ESheep.character:FindFirstChild("ESheepSleeping") then
+
+            ESheep.restoreNormalSleep()
+        else
+            ESheep.endSleep()
+        end
+    end
+end
+
+function ESheep.setupCharacter(character)
+    ESheep.disconnectCharacterConnections()
+    ESheep.stopNormalSleepTrack()
+
+    ESheep.character = character
+    ESheep.humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+    ESheep.backpack = player:FindFirstChildOfClass("Backpack")
+    ESheep.animator = ESheep.humanoid and ESheep.humanoid:FindFirstChildOfClass("Animator") or nil
+    ESheep.sleeping = false
+    ESheep.toolBeforeSleep = nil
+    ESheep.restoredInitialTool = false
+
+    if not ESheep.character or not ESheep.humanoid then
+        return
+    end
+
+    if not ESheep.backpack then
+        ESheep.backpack = player:WaitForChild("Backpack", 5)
+    end
+
+    if not ESheep.animator then
+        ESheep.animator = ESheep.humanoid:WaitForChild("Animator", 5)
+    end
+
+    table.insert(
+        ESheep.connections,
+        ESheep.character.ChildAdded:Connect(function(child)
+            if child.Name == "ESheepSleeping" then
+                if State.electricSheepCheat then
+                    ESheep.beginSleep()
+                end
+                return
+            end
+
+            if child.Name == "TooSnoozing"
+                and child:IsA("LocalScript")
+                and State.electricSheepCheat then
+
+                if not ESheep.sleeping then
+                    ESheep.beginSleep()
+                end
+
+                task.defer(function()
+                    if State.electricSheepCheat and child.Parent then
+                        child:Destroy()
+                    end
+                end)
+
+                return
+            end
+
+            if child.Name == "ESheepBoost" then
+                ESheep.endSleep()
+            end
+        end)
+    )
+
+    table.insert(
+        ESheep.connections,
+        ESheep.character.ChildRemoved:Connect(function(child)
+            if child.Name == "ESheepSleeping" then
+                ESheep.endSleep()
+                return
+            end
+
+            if State.electricSheepCheat
+                and ESheep.sleeping
+                and child == ESheep.toolBeforeSleep
+                and not ESheep.restoredInitialTool
+                and os.clock() - ESheep.sleepStartTime < 1 then
+
+                task.delay(0.03, ESheep.restoreInitialTool)
+            end
+        end)
+    )
+
+    table.insert(
+        ESheep.connections,
+        ESheep.humanoid:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+            if State.electricSheepCheat
+                and ESheep.sleeping
+                and ESheep.humanoid.PlatformStand then
+
+                task.defer(ESheep.cancelPlatformStand)
+            end
+        end)
+    )
+
+    table.insert(
+        ESheep.connections,
+        ESheep.humanoid.StateChanged:Connect(function(_, newState)
+            if State.electricSheepCheat
+                and ESheep.sleeping
+                and newState == Enum.HumanoidStateType.PlatformStanding then
+
+                task.defer(ESheep.cancelPlatformStand)
+            end
+        end)
+    )
+
+    if ESheep.animator then
+        table.insert(
+            ESheep.connections,
+            ESheep.animator.AnimationPlayed:Connect(function(track)
+                if State.electricSheepCheat
+                    and ESheep.sleeping
+                    and ESheep.getAnimationId(track) == ESheep.SLEEP_ANIMATION_ID then
+
+                    task.defer(function()
+                        ESheep.stopSleepTrack(track)
+                    end)
+                end
+            end)
+        )
+    end
+
+    if State.electricSheepCheat
+        and ESheep.character:FindFirstChild("ESheepSleeping") then
+
+        ESheep.beginSleep()
+    end
+end
+
+function ESheep.shutdown()
+    State.electricSheepCheat = false
+    ESheep.restoreNormalSleep()
+    ESheep.disconnectCharacterConnections()
 end
 
 --// =========================================================
@@ -7217,6 +7957,196 @@ local function createSettingsWindow(
                 true
 
             updateAutoEquip()
+
+            task.defer(
+                function()
+
+                    autoEquipTool(
+                        true
+                    )
+                end
+            )
+        end
+    )
+
+    --=========================================================
+    -- Electric Sheep Armour Cheat
+    --=========================================================
+
+    electricSheepButton =
+        createXPButton(
+            settingsContent,
+            UDim2.new(
+                1,
+                0,
+                0,
+                36
+            ),
+            UDim2.fromOffset(
+                0,
+                82
+            ),
+            53,
+            false
+        )
+
+    local sheepCheckbox =
+        Instance.new("Frame")
+
+    sheepCheckbox.Size =
+        UDim2.fromOffset(
+            16,
+            16
+        )
+
+    sheepCheckbox.Position =
+        UDim2.fromOffset(
+            8,
+            10
+        )
+
+    sheepCheckbox.BackgroundColor3 =
+        Color3.fromRGB(
+            255,
+            255,
+            255
+        )
+
+    sheepCheckbox.BorderSizePixel =
+        1
+
+    sheepCheckbox.BorderColor3 =
+        XP.BorderDark
+
+    sheepCheckbox.ZIndex =
+        54
+
+    sheepCheckbox.Parent =
+        electricSheepButton
+
+    electricSheepCheck =
+        Instance.new("TextLabel")
+
+    electricSheepCheck.BackgroundTransparency =
+        1
+
+    electricSheepCheck.Size =
+        UDim2.fromScale(
+            1,
+            1
+        )
+
+    electricSheepCheck.Font =
+        XP_FONT_UI_BOLD
+
+    electricSheepCheck.Text =
+        "✓"
+
+    electricSheepCheck.TextSize =
+        13
+
+    electricSheepCheck.TextColor3 =
+        XP.GreenDark
+
+    electricSheepCheck.TextXAlignment =
+        Enum.TextXAlignment.Center
+
+    electricSheepCheck.TextYAlignment =
+        Enum.TextYAlignment.Center
+
+    electricSheepCheck.ZIndex =
+        55
+
+    electricSheepCheck.Parent =
+        sheepCheckbox
+
+    local sheepText =
+        Instance.new("TextLabel")
+
+    sheepText.BackgroundTransparency =
+        1
+
+    sheepText.Position =
+        UDim2.fromOffset(
+            32,
+            1
+        )
+
+    sheepText.Size =
+        UDim2.new(
+            1,
+            -40,
+            0,
+            18
+        )
+
+    sheepText.Font =
+        XP_FONT_UI_BOLD
+
+    sheepText.Text =
+        "Electric Sheep Armour Cheat"
+
+    sheepText.TextSize =
+        12
+
+    sheepText.TextColor3 =
+        XP.Text
+
+    sheepText.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    sheepText.ZIndex =
+        54
+
+    sheepText.Parent =
+        electricSheepButton
+
+    local sheepHint =
+        Instance.new("TextLabel")
+
+    sheepHint.BackgroundTransparency =
+        1
+
+    sheepHint.Position =
+        UDim2.fromOffset(
+            32,
+            18
+        )
+
+    sheepHint.Size =
+        UDim2.new(
+            1,
+            -40,
+            0,
+            13
+        )
+
+    sheepHint.Font =
+        XP_FONT_UI
+
+    sheepHint.Text =
+        "Move and keep tools during Dreamstate"
+
+    sheepHint.TextSize =
+        10
+
+    sheepHint.TextColor3 =
+        XP.TextSecondary
+
+    sheepHint.TextXAlignment =
+        Enum.TextXAlignment.Left
+
+    sheepHint.ZIndex =
+        54
+
+    sheepHint.Parent =
+        electricSheepButton
+
+    electricSheepButton.MouseButton1Click:Connect(
+        function()
+            ESheep.setEnabled(
+                not State.electricSheepCheat
+            )
         end
     )
 
@@ -7233,7 +8163,7 @@ local function createSettingsWindow(
     furnitureTypeLabel.Position =
         UDim2.fromOffset(
             8,
-            86
+            127
         )
 
     furnitureTypeLabel.Size =
@@ -7280,7 +8210,7 @@ local function createSettingsWindow(
     furnitureTypeButton.Position =
         UDim2.fromOffset(
             0,
-            107
+            148
         )
 
     furnitureTypeButton.BackgroundColor3 =
@@ -7439,7 +8369,7 @@ local function createSettingsWindow(
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            143
+            184
         )
 
     --// Windows XP drop list: white list with a 1px black outline.
@@ -9683,6 +10613,8 @@ local function createMainWindow(
 
             destroyFurniturePreview()
 
+            ESheep.shutdown()
+
             setResizeCursor(
                 false
             )
@@ -9849,8 +10781,32 @@ local function createGUI()
         end
     end)
 
-    gui.Parent =
-        parentGui
+    local parented =
+        pcall(
+            function()
+
+                gui.Parent =
+                    parentGui
+            end
+        )
+
+    if not parented
+        or not gui.Parent then
+
+        local playerGui =
+            player:FindFirstChildOfClass(
+                "PlayerGui"
+            )
+            or player:WaitForChild(
+                "PlayerGui",
+                5
+            )
+
+        if playerGui then
+            gui.Parent =
+                playerGui
+        end
+    end
 
     createMainWindow(
         gui
@@ -9867,6 +10823,7 @@ local function createGUI()
     updateStatus()
     updateTarget()
     updateAutoEquip()
+    updateElectricSheepCheat()
 
     mainWindow.Size =
         UDim2.fromOffset(
@@ -9920,7 +10877,7 @@ end
 --// Public API
 --// =========================================================
 
-local API = {}
+API = {}
 
 function API.Start()
 
@@ -9953,6 +10910,13 @@ function API.Start()
 
     State.lastFireTime =
         0
+
+    if State.autoEquip then
+
+        autoEquipTool(
+            true
+        )
+    end
 
     updateStatus()
 
@@ -10079,7 +11043,33 @@ function API.SetAutoEquip(
 
     updateAutoEquip()
 
+    if State.autoEquip then
+
+        task.defer(
+            function()
+
+                autoEquipTool(
+                    true
+                )
+            end
+        )
+    end
+
     return true
+end
+
+function API.SetElectricSheepCheat(
+    enabled
+)
+    ESheep.setEnabled(
+        enabled == true
+    )
+
+    return State.electricSheepCheat
+end
+
+function API.GetElectricSheepCheat()
+    return State.electricSheepCheat
 end
 
 function API.HasEquinoxCannon()
@@ -10112,6 +11102,9 @@ function API.GetStatus()
 
         AutoEquip =
             State.autoEquip,
+
+        ElectricSheepCheat =
+            State.electricSheepCheat,
 
         HasEquinoxCannon =
             hasEquinoxCannon()
@@ -10180,34 +11173,126 @@ createGUI()
 State.playerAlive =
     isPlayerAlive()
 
+refreshEnemyCache(
+    true
+)
+
+ESheep.setupCharacter(player.Character)
+
+workspaceChildAddedConnection =
+    workspace.ChildAdded:Connect(
+        function(child)
+
+            if child:IsA("Model") then
+
+                task.defer(
+                    registerEnemyModel,
+                    child
+                )
+            end
+        end
+    )
+
+workspaceChildRemovedConnection =
+    workspace.ChildRemoved:Connect(
+        function(child)
+
+            if cache.enemyIndex[
+                child
+            ] then
+
+                removeEnemyModel(
+                    child
+                )
+            end
+        end
+    )
+
+characterAddedConnection =
+    player.CharacterAdded:Connect(
+        function(character)
+
+            cache.toolCharacter =
+                character
+
+            cache.toolData =
+                nil
+
+            ESheep.setupCharacter(character)
+
+            State.playerAlive =
+                false
+
+            task.delay(
+                0.2,
+                function()
+
+                    if player.Character ~=
+                        character then
+
+                        return
+                    end
+
+                    State.playerAlive =
+                        isPlayerAlive()
+
+                    if State.autoEquip
+                        and State.playerAlive then
+
+                        autoEquipTool(
+                            true
+                        )
+                    end
+                end
+            )
+        end
+    )
+
 updateStatus()
 updateTarget()
 updateAutoEquip()
-
---// =========================================================
---// Main Firing Worker
---// =========================================================
+updateElectricSheepCheat()
 
 task.spawn(
     function()
 
         while not guiClosed do
 
-            State.playerAlive =
-                isPlayerAlive()
+            local now =
+                os.clock()
+
+            if now -
+                cache.lastPlayerStateCheck
+                >= CONFIG.PLAYER_STATE_INTERVAL then
+
+                cache.lastPlayerStateCheck =
+                    now
+
+                State.playerAlive =
+                    isPlayerAlive()
+            end
+
+            if State.autoEquip
+                and State.playerAlive
+                and now -
+                    cache.lastAutoEquipCheck
+                    >= CONFIG.AUTO_EQUIP_CHECK_INTERVAL then
+
+                cache.lastAutoEquipCheck =
+                    now
+
+                autoEquipTool(
+                    false
+                )
+            end
 
             if State.isRunning
-                and State.playerAlive then
+                and State.playerAlive
+                and State.shootingEnabled then
 
-                if State.autoEquip then
-                    autoEquipTool()
-                end
+                attemptFire()
 
-                if State.shootingEnabled then
-                    attemptFire()
-                end
-
-            else
+            elseif not State.isRunning then
 
                 State.currentTarget =
                     nil
@@ -10216,14 +11301,12 @@ task.spawn(
                     "None"
             end
 
-            RunService.Heartbeat:Wait()
+            task.wait(
+                CONFIG.FIRE_WORKER_INTERVAL
+            )
         end
     end
 )
-
---// =========================================================
---// Target Worker
---// =========================================================
 
 task.spawn(
     function()
@@ -10266,15 +11349,11 @@ task.spawn(
             end
 
             task.wait(
-                0.3
+                CONFIG.TARGET_REFRESH_INTERVAL
             )
         end
     end
 )
-
---// =========================================================
---// UI Refresh
---// =========================================================
 
 task.spawn(
     function()
@@ -10283,19 +11362,41 @@ task.spawn(
             and gui.Parent
             and not guiClosed do
 
-            State.playerAlive =
-                isPlayerAlive()
-
             updateStatus()
             updateTarget()
             updateAutoEquip()
-            updateFurnitureScrollbar()
+            updateElectricSheepCheat()
+
+            if furnitureWindow
+                and furnitureWindow.Visible then
+
+                updateFurnitureScrollbar()
+            end
 
             task.wait(
-                0.15
+                CONFIG.UI_REFRESH_INTERVAL
             )
+        end
+
+        if workspaceChildAddedConnection
+            and workspaceChildAddedConnection.Connected then
+
+            workspaceChildAddedConnection:Disconnect()
+        end
+
+        if workspaceChildRemovedConnection
+            and workspaceChildRemovedConnection.Connected then
+
+            workspaceChildRemovedConnection:Disconnect()
+        end
+
+        if characterAddedConnection
+            and characterAddedConnection.Connected then
+
+            characterAddedConnection:Disconnect()
         end
     end
 )
 
 return API
+
