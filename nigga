@@ -4450,45 +4450,69 @@ function ESheep.restoreNormalSleep()
     ESheep.restoredInitialTool = false
 end
 
-function ESheep.hasFullSetEquipped()
-    local character = ESheep.character or player.Character
+function ESheep.getSetStatus()
+    local backpack = player:FindFirstChildOfClass("Backpack")
 
-    if not character then
-        return false
+    if not backpack then
+        return false, false
     end
 
+    local armourModel = backpack:FindFirstChild("OriginalArmourModel")
+
+    if not armourModel then
+        return false, false
+    end
+
+    local head2 = armourModel:FindFirstChild("Head2")
+    local hornsPart = head2 and head2:FindFirstChild("Torus")
+    local hasHorns = hornsPart ~= nil
+
+    local torso2 = armourModel:FindFirstChild("Torso2")
+    local armourPart = torso2 and torso2:FindFirstChild("Plane")
     local hasArmour = false
-    local hasHorns = false
 
-    for _, object in ipairs(character:GetDescendants()) do
-        local normalizedName = string.lower(object.Name):gsub("[^%w]", "")
+    if armourPart and armourPart:IsA("BasePart") then
+        local expectedColor = Color3.fromRGB(135, 110, 209)
+        local actualColor = armourPart.Color
 
-        if normalizedName == "electricsheeparmour" then
-            hasArmour = true
-        elseif normalizedName == "electricsheephorns" then
-            hasHorns = true
-        end
-
-        if hasArmour and hasHorns then
-            return true
-        end
+        hasArmour =
+            math.abs(actualColor.R - expectedColor.R) < 0.001
+            and math.abs(actualColor.G - expectedColor.G) < 0.001
+            and math.abs(actualColor.B - expectedColor.B) < 0.001
     end
 
-    return false
+    return hasArmour, hasHorns
+end
+
+function ESheep.hasFullSetEquipped()
+    local hasArmour, hasHorns = ESheep.getSetStatus()
+    return hasArmour and hasHorns
 end
 
 function ESheep.setEnabled(enabled)
-    if enabled and not ESheep.hasFullSetEquipped() then
-        State.electricSheepCheat = false
-        updateElectricSheepCheat()
+    if enabled then
+        local hasArmour, hasHorns = ESheep.getSetStatus()
 
-        if gui and not guiClosed then
-            createErrorWindow(
-                "Electric Sheep Armour and Electric Sheep Horns must both be equipped."
-            )
+        if not hasArmour or not hasHorns then
+            State.electricSheepCheat = false
+            updateElectricSheepCheat()
+
+            if gui and not guiClosed then
+                local message
+
+                if not hasArmour and not hasHorns then
+                    message = "Electric Sheep Armour and Electric Sheep Horns were not found."
+                elseif not hasArmour then
+                    message = "Electric Sheep Armour was not found."
+                else
+                    message = "Electric Sheep Horns were not found."
+                end
+
+                createErrorWindow(message)
+            end
+
+            return false
         end
-
-        return false
     end
 
     State.electricSheepCheat = enabled == true
