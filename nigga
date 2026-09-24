@@ -4449,7 +4449,47 @@ function ESheep.restoreNormalSleep()
     ESheep.restoredInitialTool = false
 end
 
+function ESheep.hasFullSetEquipped()
+    local character = ESheep.character or player.Character
+
+    if not character then
+        return false
+    end
+
+    local hasArmour = false
+    local hasHorns = false
+
+    for _, object in ipairs(character:GetDescendants()) do
+        local normalizedName = string.lower(object.Name):gsub("[^%w]", "")
+
+        if normalizedName == "electricsheeparmour" then
+            hasArmour = true
+        elseif normalizedName == "electricsheephorns" then
+            hasHorns = true
+        end
+
+        if hasArmour and hasHorns then
+            return true
+        end
+    end
+
+    return false
+end
+
 function ESheep.setEnabled(enabled)
+    if enabled and not ESheep.hasFullSetEquipped() then
+        State.electricSheepCheat = false
+        updateElectricSheepCheat()
+
+        if gui and not guiClosed then
+            createErrorWindow(
+                "Electric Sheep Armour and Electric Sheep Horns must both be equipped."
+            )
+        end
+
+        return false
+    end
+
     State.electricSheepCheat = enabled == true
     updateElectricSheepCheat()
 
