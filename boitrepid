@@ -1904,6 +1904,7 @@ function TrepidHub.setEffectsSuppressed(
         true
 
     TrepidHub.refreshEffectSuppression()
+    TrepidHub.clearReplicatedHitEffects()
 
     task.spawn(
         function()
@@ -1922,6 +1923,135 @@ function TrepidHub.setEffectsSuppressed(
     )
 
     return true
+end
+
+function TrepidHub.shouldRemoveReplicatedHitEffect(
+    instance
+)
+
+    if not instance
+        or instance.Name ~= "Effect"
+        or not State.isRunning
+        or not State.shootingEnabled
+        or not TrepidHub.effectsSuppressed then
+
+        return false
+    end
+
+    local character =
+        player.Character
+
+    if character
+        and instance:IsDescendantOf(
+            character
+        ) then
+
+        return true
+    end
+
+    local currentTarget =
+        State.currentTarget
+
+    local targetModel =
+        currentTarget
+        and currentTarget.Model
+
+    if targetModel
+        and targetModel.Parent
+        and instance:IsDescendantOf(
+            targetModel
+        ) then
+
+        return true
+    end
+
+    local current =
+        instance.Parent
+
+    while current
+        and current ~= workspace do
+
+        if cache.enemyIndex[
+            current
+        ] then
+
+            return true
+        end
+
+        current =
+            current.Parent
+    end
+
+    return false
+end
+
+function TrepidHub.removeReplicatedHitEffect(
+    instance
+)
+
+    if not TrepidHub.shouldRemoveReplicatedHitEffect(
+        instance
+    ) then
+
+        return false
+    end
+
+    pcall(
+        function()
+            instance:Destroy()
+        end
+    )
+
+    return true
+end
+
+function TrepidHub.clearReplicatedHitEffects()
+
+    if not State.isRunning
+        or not State.shootingEnabled
+        or not TrepidHub.effectsSuppressed then
+
+        return
+    end
+
+    local character =
+        player.Character
+
+    if character then
+
+        for _, descendant in ipairs(
+            character:GetDescendants()
+        ) do
+
+            if descendant.Name == "Effect" then
+
+                TrepidHub.removeReplicatedHitEffect(
+                    descendant
+                )
+            end
+        end
+    end
+
+    for _, model in ipairs(
+        cache.enemyModels
+    ) do
+
+        if model
+            and model.Parent then
+
+            for _, descendant in ipairs(
+                model:GetDescendants()
+            ) do
+
+                if descendant.Name == "Effect" then
+
+                    TrepidHub.removeReplicatedHitEffect(
+                        descendant
+                    )
+                end
+            end
+        end
+    end
 end
 
 function TrepidHub.showPistolModeError()
@@ -11972,6 +12102,20 @@ refreshEnemyCache(
 
 ESheep.setupCharacter(player.Character)
 
+trepidEffectDescendantConnection =
+    workspace.DescendantAdded:Connect(
+        function(descendant)
+
+            if descendant.Name ==
+                "Effect" then
+
+                TrepidHub.removeReplicatedHitEffect(
+                    descendant
+                )
+            end
+        end
+    )
+
 workspaceChildAddedConnection =
     workspace.ChildAdded:Connect(
         function(child)
@@ -12190,6 +12334,12 @@ task.spawn(
             task.wait(
                 CONFIG.UI_REFRESH_INTERVAL
             )
+        end
+
+        if trepidEffectDescendantConnection
+            and trepidEffectDescendantConnection.Connected then
+
+            trepidEffectDescendantConnection:Disconnect()
         end
 
         if workspaceChildAddedConnection
