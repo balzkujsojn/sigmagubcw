@@ -36,7 +36,20 @@ local CONFIG = {
     PLAYER_STATE_INTERVAL = 0.25,
     AUTO_EQUIP_CHECK_INTERVAL = 0.25,
     UI_REFRESH_INTERVAL = 0.25,
-    PREVIEW_UPDATE_INTERVAL = 1 / 30
+    PREVIEW_UPDATE_INTERVAL = 1 / 30,
+    ESHEEP_AUTO_COOLDOWN = 40,
+    DUMMY_TOOL_NAME = "Simulation Dummy",
+    DUMMY_MODEL_NAME = "SimulationDummy",
+    DUMMY_REMOTE_NAME = "RemoteFunction",
+    DUMMY_SPAWN_TIMEOUT = 3,
+    DUMMY_SHIELD_TIMEOUT = 3,
+    DUMMY_SHIELD_DELAY = 0.1,
+    DUMMY_SETUP_RETRY_DELAY = 1,
+    DUMMY_STATIONARY_DELAY = 0.35,
+    DUMMY_MONITOR_INTERVAL = 0.1,
+    GIGATON_TOOL_NAME = "Gigaton Hammer",
+    GIGATON_REMOTE_NAME = "RemoteFunction",
+    GIGATON_INTERVAL = 1
 }
 
 local IGNORE_ENEMIES = {
@@ -132,7 +145,10 @@ local State = {
     toolEquipCooldown = 0.5,
 
     autoEquip = false,
-    electricSheepCheat = false
+    electricSheepCheat = false,
+    autoElectricSheepAbility = false,
+    lastAutoElectricSheepUse = 0,
+    autoGigatonDummy = false
 }
 
 TrepidHub = {
@@ -141,6 +157,24 @@ TrepidHub = {
     effectsSuppressed = false,
     effectSuppressionToken = 0,
     lastKnownPistolMode = nil
+}
+
+CombatFeatures = {
+    loopsStarted = false,
+    toolSwitching = false,
+    dummySetupInProgress = false,
+    dummyDestroyInProgress = false,
+    dummyModel = nil,
+    dummyRemote = nil,
+    dummyReady = false,
+    gigatonRemote = nil,
+    gigatonPrimed = false,
+    gigatonActive = false,
+    stationarySince = nil,
+    lastDummySetupAttempt = 0,
+    lastDummyDestroyAttempt = 0,
+    lastGigatonUse = 0,
+    preDummyGigatonTool = nil
 }
 
 --// =========================================================
@@ -265,10 +299,10 @@ local MAIN_MINIMIZED_HEIGHT = 31
 --// =========================================================
 
 local SETTINGS_DEFAULT_WIDTH = 270
-local SETTINGS_DEFAULT_HEIGHT = 256
+local SETTINGS_DEFAULT_HEIGHT = 380
 
 local SETTINGS_MIN_WIDTH = 220
-local SETTINGS_MIN_HEIGHT = 220
+local SETTINGS_MIN_HEIGHT = 320
 
 local SETTINGS_MAX_WIDTH = 500
 local SETTINGS_MAX_HEIGHT = 420
@@ -809,7 +843,7 @@ local function openFurnitureTypeDropdown()
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            175
+            257
         )
 
     furnitureTypeDropdown.Size =
@@ -4423,6 +4457,25 @@ local function removeEnemyModel(
     end
 end
 
+function shouldIgnoreEnemyModel(
+    model
+)
+
+    if not model then
+        return true
+    end
+
+    if IGNORE_ENEMIES[
+        model.Name
+    ] then
+
+        return true
+    end
+
+    return State.autoGigatonDummy == true
+        and model.Name == CONFIG.DUMMY_MODEL_NAME
+end
+
 local function registerEnemyModel(
     model
 )
@@ -4434,9 +4487,9 @@ local function registerEnemyModel(
         return false
     end
 
-    if IGNORE_ENEMIES[
-        model.Name
-    ] then
+    if shouldIgnoreEnemyModel(
+        model
+    ) then
 
         return false
     end
@@ -4564,7 +4617,10 @@ local function refreshEnemyCache(
             and data
             and data.Humanoid
             and data.Humanoid.Parent
-            and data.Humanoid.Health > 0 then
+            and data.Humanoid.Health > 0
+            and not shouldIgnoreEnemyModel(
+                model
+            ) then
 
             validModels[
                 #validModels + 1
@@ -4780,6 +4836,10 @@ end
 
 local function attemptFire()
 
+    if CombatFeatures.toolSwitching then
+        return
+    end
+
     if not State.isRunning then
         return
     end
@@ -4983,6 +5043,24 @@ local function updateAutoEquip()
 
     autoEquipCheck.Visible =
         State.autoEquip == true
+end
+
+function updateAutoElectricSheepAbility()
+    if not autoSheepAbilityCheck then
+        return
+    end
+
+    autoSheepAbilityCheck.Visible =
+        State.autoElectricSheepAbility == true
+end
+
+function updateDummyGigatonFeature()
+    if not dummyGigatonCheck then
+        return
+    end
+
+    dummyGigatonCheck.Visible =
+        State.autoGigatonDummy == true
 end
 
 --// =========================================================
@@ -5430,6 +5508,1131 @@ function ESheep.shutdown()
     State.electricSheepCheat = false
     ESheep.restoreNormalSleep()
     ESheep.disconnectCharacterConnections()
+end
+
+
+function CombatFeatures.showElectricSheepSetError()
+    local hasArmour, hasHorns =
+        ESheep.getSetStatus()
+
+    local message
+
+    if not hasArmour
+        and not hasHorns then
+
+        message =
+            "Electric Sheep Armour and Electric Sheep Horns were not found."
+
+    elseif not hasArmour then
+
+        message =
+            "Electric Sheep Armour was not found."
+
+    elseif not hasHorns then
+
+        message =
+            "Electric Sheep Horns were not found."
+    end
+
+    if message
+        and gui
+        and not guiClosed then
+
+        createErrorWindow(
+            message
+        )
+    end
+
+    return hasArmour
+        and hasHorns
+end
+
+function CombatFeatures.useElectricSheepAbility()
+    if not State.autoElectricSheepAbility
+        or not isPlayerAlive() then
+
+        return false
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        return false
+    end
+
+    if character:FindFirstChild(
+        "ESheepSleeping"
+    )
+        or character:FindFirstChild(
+            "ESheepWakeUp"
+        )
+        or player:FindFirstChild(
+            "ESheepAbilityCD"
+        ) then
+
+        return false
+    end
+
+    if not ESheep.hasFullSetEquipped() then
+        return false
+    end
+
+    local remote =
+        character:FindFirstChild(
+            "AbilityMain"
+        )
+
+    if not remote
+        or not remote:IsA(
+            "RemoteEvent"
+        ) then
+
+        return false
+    end
+
+    local success =
+        pcall(
+            function()
+                remote:FireServer(
+                    character
+                )
+            end
+        )
+
+    if success then
+        State.lastAutoElectricSheepUse =
+            os.clock()
+
+        return true
+    end
+
+    return false
+end
+
+function CombatFeatures.setAutoElectricSheepEnabled(
+    enabled
+)
+    enabled =
+        enabled == true
+
+    if enabled
+        and not ESheep.hasFullSetEquipped() then
+
+        State.autoElectricSheepAbility =
+            false
+
+        updateAutoElectricSheepAbility()
+        CombatFeatures.showElectricSheepSetError()
+
+        return false
+    end
+
+    State.autoElectricSheepAbility =
+        enabled
+
+    if enabled then
+        State.lastAutoElectricSheepUse =
+            0
+    end
+
+    updateAutoElectricSheepAbility()
+
+    return true
+end
+
+function CombatFeatures.findToolAnywhere(
+    toolName
+)
+    local character =
+        player.Character
+
+    if character then
+        local tool =
+            character:FindFirstChild(
+                toolName
+            )
+
+        if tool
+            and tool:IsA("Tool") then
+
+            return tool
+        end
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    if backpack then
+        local tool =
+            backpack:FindFirstChild(
+                toolName
+            )
+
+        if tool
+            and tool:IsA("Tool") then
+
+            return tool
+        end
+    end
+
+    return nil
+end
+
+function CombatFeatures.equipNamedTool(
+    toolName
+)
+    local character =
+        player.Character
+
+    local humanoid =
+        character
+        and character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not character
+        or not humanoid
+        or humanoid.Health <= 0 then
+
+        return nil
+    end
+
+    local equipped =
+        character:FindFirstChild(
+            toolName
+        )
+
+    if equipped
+        and equipped:IsA("Tool") then
+
+        return equipped
+    end
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    local tool =
+        backpack
+        and backpack:FindFirstChild(
+            toolName
+        )
+
+    if not tool
+        or not tool:IsA("Tool") then
+
+        return nil
+    end
+
+    local success =
+        pcall(
+            function()
+                humanoid:EquipTool(
+                    tool
+                )
+            end
+        )
+
+    if not success then
+        return nil
+    end
+
+    local deadline =
+        os.clock() + 0.6
+
+    repeat
+        equipped =
+            character:FindFirstChild(
+                toolName
+            )
+
+        if equipped
+            and equipped:IsA("Tool") then
+
+            return equipped
+        end
+
+        task.wait(0.02)
+    until os.clock() >= deadline
+
+    return nil
+end
+
+function CombatFeatures.restorePreferredTool(
+    previousTool
+)
+    State.playerAlive =
+        isPlayerAlive()
+
+    if not State.playerAlive then
+        return
+    end
+
+    local character =
+        player.Character
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    local humanoid =
+        character
+        and character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    local restoreTool =
+        CombatFeatures.preDummyGigatonTool
+
+    if restoreTool
+        and restoreTool:IsA("Tool")
+        and restoreTool.Parent == character then
+
+        return
+    end
+
+    if restoreTool
+        and restoreTool:IsA("Tool")
+        and restoreTool.Parent == backpack
+        and humanoid then
+
+        pcall(
+            function()
+                humanoid:EquipTool(
+                    restoreTool
+                )
+            end
+        )
+
+        return
+    end
+
+    if previousTool
+        and previousTool:IsA("Tool")
+        and previousTool.Parent == character then
+
+        return
+    end
+
+    if previousTool
+        and previousTool:IsA("Tool")
+        and previousTool.Parent == backpack
+        and humanoid then
+
+        pcall(
+            function()
+                humanoid:EquipTool(
+                    previousTool
+                )
+            end
+        )
+
+        return
+    end
+
+    if State.isRunning
+        and State.shootingEnabled
+        and hasTrepidTerror() then
+
+        autoEquipTool(
+            true
+        )
+    end
+end
+
+function CombatFeatures.removeDummyFromTargetCache()
+    for index =
+        #cache.enemyModels,
+        1,
+        -1 do
+
+        local model =
+            cache.enemyModels[
+                index
+            ]
+
+        if model
+            and model.Name ==
+                CONFIG.DUMMY_MODEL_NAME then
+
+            removeEnemyModel(
+                model
+            )
+        end
+    end
+end
+
+function CombatFeatures.getGigatonRemote()
+    if CombatFeatures.gigatonRemote
+        and CombatFeatures.gigatonRemote.Parent then
+
+        return CombatFeatures.gigatonRemote
+    end
+
+    CombatFeatures.gigatonRemote =
+        nil
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.GIGATON_TOOL_NAME
+        )
+
+    if not tool then
+        return nil
+    end
+
+    local remote =
+        tool:FindFirstChild(
+            CONFIG.GIGATON_REMOTE_NAME
+        )
+
+    if remote
+        and remote:IsA(
+            "RemoteFunction"
+        ) then
+
+        CombatFeatures.gigatonRemote =
+            remote
+
+        return remote
+    end
+
+    return nil
+end
+
+function CombatFeatures.primeGigaton()
+    if CombatFeatures.gigatonPrimed
+        and CombatFeatures.getGigatonRemote() then
+
+        return true
+    end
+
+    if CombatFeatures.toolSwitching then
+        return false
+    end
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.GIGATON_TOOL_NAME
+        )
+
+    if not tool then
+        return false
+    end
+
+    local character =
+        player.Character
+
+    local previousTool =
+        character
+        and character:FindFirstChildOfClass(
+            "Tool"
+        )
+
+    CombatFeatures.toolSwitching =
+        true
+
+    local equipped =
+        CombatFeatures.equipNamedTool(
+            CONFIG.GIGATON_TOOL_NAME
+        )
+
+    local success =
+        false
+
+    if equipped then
+        local remote =
+            equipped:FindFirstChild(
+                CONFIG.GIGATON_REMOTE_NAME
+            )
+
+        if remote
+            and remote:IsA(
+                "RemoteFunction"
+            ) then
+
+            CombatFeatures.gigatonRemote =
+                remote
+
+            CombatFeatures.gigatonPrimed =
+                true
+
+            success =
+                true
+        end
+    end
+
+    task.wait(0.15)
+
+    CombatFeatures.restorePreferredTool(
+        previousTool
+    )
+
+    CombatFeatures.toolSwitching =
+        false
+
+    return success
+end
+
+function CombatFeatures.spawnDummyWithShield()
+    if CombatFeatures.dummySetupInProgress
+        or CombatFeatures.dummyDestroyInProgress
+        or not State.autoGigatonDummy
+        or CombatFeatures.toolSwitching then
+
+        return false
+    end
+
+    CombatFeatures.dummySetupInProgress =
+        true
+
+    local character =
+        player.Character
+
+    local previousTool =
+        character
+        and character:FindFirstChildOfClass(
+            "Tool"
+        )
+
+    CombatFeatures.toolSwitching =
+        true
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.DUMMY_TOOL_NAME
+        )
+
+    local remote =
+        tool
+        and tool:FindFirstChild(
+            CONFIG.DUMMY_REMOTE_NAME
+        )
+
+    if not tool
+        or not remote
+        or not remote:IsA(
+            "RemoteFunction"
+        ) then
+
+        CombatFeatures.toolSwitching =
+            false
+
+        CombatFeatures.dummySetupInProgress =
+            false
+
+        return false
+    end
+
+    local equipped =
+        CombatFeatures.equipNamedTool(
+            CONFIG.DUMMY_TOOL_NAME
+        )
+
+    if not equipped then
+        CombatFeatures.toolSwitching =
+            false
+
+        CombatFeatures.dummySetupInProgress =
+            false
+
+        return false
+    end
+
+    CombatFeatures.dummyRemote =
+        remote
+
+    local existing =
+        {}
+
+    for _, child in ipairs(
+        workspace:GetChildren()
+    ) do
+        if child:IsA("Model")
+            and child.Name ==
+                CONFIG.DUMMY_MODEL_NAME then
+
+            existing[child] =
+                true
+        end
+    end
+
+    local spawnedDummy =
+        nil
+
+    local childAddedConnection
+
+    childAddedConnection =
+        workspace.ChildAdded:Connect(
+            function(child)
+                if child:IsA("Model")
+                    and child.Name ==
+                        CONFIG.DUMMY_MODEL_NAME
+                    and not existing[child] then
+
+                    spawnedDummy =
+                        child
+                end
+            end
+        )
+
+    local placeSuccess =
+        pcall(
+            function()
+                remote:InvokeServer(
+                    "place"
+                )
+            end
+        )
+
+    if placeSuccess then
+        local deadline =
+            os.clock() +
+            CONFIG.DUMMY_SPAWN_TIMEOUT
+
+        repeat
+            if spawnedDummy
+                and spawnedDummy.Parent ==
+                    workspace then
+
+                break
+            end
+
+            for _, child in ipairs(
+                workspace:GetChildren()
+            ) do
+                if child:IsA("Model")
+                    and child.Name ==
+                        CONFIG.DUMMY_MODEL_NAME
+                    and not existing[child] then
+
+                    spawnedDummy =
+                        child
+
+                    break
+                end
+            end
+
+            if spawnedDummy then
+                break
+            end
+
+            task.wait(0.03)
+        until os.clock() >= deadline
+    end
+
+    if childAddedConnection
+        and childAddedConnection.Connected then
+
+        childAddedConnection:Disconnect()
+    end
+
+    local shieldEnabled =
+        false
+
+    if spawnedDummy
+        and spawnedDummy.Parent == workspace
+        and State.autoGigatonDummy then
+
+        CombatFeatures.dummyModel =
+            spawnedDummy
+
+        CombatFeatures.removeDummyFromTargetCache()
+
+        task.wait(
+            CONFIG.DUMMY_SHIELD_DELAY
+        )
+
+        local shieldDeadline =
+            os.clock() +
+            CONFIG.DUMMY_SHIELD_TIMEOUT
+
+        repeat
+            local shieldSuccess =
+                pcall(
+                    function()
+                        remote:InvokeServer(
+                            "Shielded",
+                            true
+                        )
+                    end
+                )
+
+            if shieldSuccess then
+                shieldEnabled =
+                    true
+
+                break
+            end
+
+            task.wait(0.05)
+        until os.clock() >= shieldDeadline
+    end
+
+    CombatFeatures.dummyReady =
+        spawnedDummy ~= nil
+        and spawnedDummy.Parent == workspace
+        and shieldEnabled
+
+    CombatFeatures.restorePreferredTool(
+        previousTool
+    )
+
+    CombatFeatures.toolSwitching =
+        false
+
+    CombatFeatures.dummySetupInProgress =
+        false
+
+    return CombatFeatures.dummyReady
+end
+
+function CombatFeatures.destroyDummy()
+    if CombatFeatures.dummyDestroyInProgress then
+        return false
+    end
+
+    local dummy =
+        CombatFeatures.dummyModel
+
+    if not dummy
+        or dummy.Parent ~= workspace then
+
+        CombatFeatures.dummyModel =
+            nil
+
+        CombatFeatures.dummyReady =
+            false
+
+        CombatFeatures.gigatonActive =
+            false
+
+        return true
+    end
+
+    local now =
+        os.clock()
+
+    if now -
+        CombatFeatures.lastDummyDestroyAttempt
+        < 0.5 then
+
+        return false
+    end
+
+    CombatFeatures.lastDummyDestroyAttempt =
+        now
+
+    CombatFeatures.dummyDestroyInProgress =
+        true
+
+    CombatFeatures.dummyReady =
+        false
+
+    CombatFeatures.gigatonActive =
+        false
+
+    local remote =
+        CombatFeatures.dummyRemote
+
+    if not remote
+        or not remote.Parent then
+
+        local tool =
+            CombatFeatures.findToolAnywhere(
+                CONFIG.DUMMY_TOOL_NAME
+            )
+
+        remote =
+            tool
+            and tool:FindFirstChild(
+                CONFIG.DUMMY_REMOTE_NAME
+            )
+
+        CombatFeatures.dummyRemote =
+            remote
+    end
+
+    local success =
+        false
+
+    if remote
+        and remote:IsA(
+            "RemoteFunction"
+        ) then
+
+        success =
+            pcall(
+                function()
+                    remote:InvokeServer(
+                        "place"
+                    )
+                end
+            )
+    end
+
+    if success then
+        local deadline =
+            os.clock() + 1
+
+        while dummy.Parent == workspace
+            and os.clock() < deadline do
+
+            task.wait(0.03)
+        end
+    end
+
+    if cache.enemyIndex[
+        dummy
+    ] then
+
+        removeEnemyModel(
+            dummy
+        )
+    end
+
+    if dummy.Parent ~= workspace then
+        CombatFeatures.dummyModel =
+            nil
+    end
+
+    CombatFeatures.dummyDestroyInProgress =
+        false
+
+    return dummy.Parent ~= workspace
+end
+
+function CombatFeatures.isPlayerMoving()
+    local character =
+        player.Character
+
+    local humanoid =
+        character
+        and character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    if not humanoid
+        or humanoid.Health <= 0 then
+
+        return false
+    end
+
+    return humanoid.MoveDirection.Magnitude > 0.05
+end
+
+function CombatFeatures.setDummyGigatonEnabled(
+    enabled
+)
+    enabled =
+        enabled == true
+
+    if enabled then
+        local character =
+            player.Character
+
+        CombatFeatures.preDummyGigatonTool =
+            character
+            and character:FindFirstChildOfClass(
+                "Tool"
+            )
+            or nil
+
+        local dummyTool =
+            CombatFeatures.findToolAnywhere(
+                CONFIG.DUMMY_TOOL_NAME
+            )
+
+        local gigatonTool =
+            CombatFeatures.findToolAnywhere(
+                CONFIG.GIGATON_TOOL_NAME
+            )
+
+        if not dummyTool
+            or not gigatonTool then
+
+            State.autoGigatonDummy =
+                false
+
+            CombatFeatures.preDummyGigatonTool =
+                nil
+
+            updateDummyGigatonFeature()
+
+            if gui
+                and not guiClosed then
+
+                local message
+
+                if not dummyTool
+                    and not gigatonTool then
+
+                    message =
+                        "Simulation Dummy and Gigaton Hammer were not found."
+
+                elseif not dummyTool then
+
+                    message =
+                        "Simulation Dummy was not found."
+
+                else
+                    message =
+                        "Gigaton Hammer was not found."
+                end
+
+                createErrorWindow(
+                    message
+                )
+            end
+
+            return false
+        end
+    end
+
+    State.autoGigatonDummy =
+        enabled
+
+    CombatFeatures.stationarySince =
+        nil
+
+    CombatFeatures.gigatonActive =
+        false
+
+    if enabled then
+        CombatFeatures.removeDummyFromTargetCache()
+
+        CombatFeatures.gigatonPrimed =
+            false
+
+        CombatFeatures.lastDummySetupAttempt =
+            0
+
+        CombatFeatures.lastGigatonUse =
+            0
+    else
+        task.spawn(
+            function()
+                CombatFeatures.destroyDummy()
+
+                task.wait(0.05)
+
+                CombatFeatures.restorePreferredTool(
+                    CombatFeatures.preDummyGigatonTool
+                )
+
+                CombatFeatures.preDummyGigatonTool =
+                    nil
+            end
+        )
+    end
+
+    updateDummyGigatonFeature()
+
+    return true
+end
+
+function CombatFeatures.resetCharacterState()
+    CombatFeatures.toolSwitching =
+        false
+
+    CombatFeatures.dummySetupInProgress =
+        false
+
+    CombatFeatures.dummyDestroyInProgress =
+        false
+
+    CombatFeatures.dummyModel =
+        nil
+
+    CombatFeatures.dummyRemote =
+        nil
+
+    CombatFeatures.dummyReady =
+        false
+
+    CombatFeatures.gigatonRemote =
+        nil
+
+    CombatFeatures.gigatonPrimed =
+        false
+
+    CombatFeatures.gigatonActive =
+        false
+
+    CombatFeatures.stationarySince =
+        nil
+
+    CombatFeatures.lastDummySetupAttempt =
+        0
+
+    CombatFeatures.lastGigatonUse =
+        0
+
+    CombatFeatures.preDummyGigatonTool =
+        nil
+end
+
+function CombatFeatures.startLoops()
+    if CombatFeatures.loopsStarted then
+        return
+    end
+
+    CombatFeatures.loopsStarted =
+        true
+
+    task.spawn(
+        function()
+            while not guiClosed do
+                local now =
+                    os.clock()
+
+                if State.autoElectricSheepAbility
+                    and isPlayerAlive()
+                    and (
+                        State.lastAutoElectricSheepUse <= 0
+                        or now -
+                            State.lastAutoElectricSheepUse
+                            >= CONFIG.ESHEEP_AUTO_COOLDOWN
+                    ) then
+
+                    CombatFeatures.useElectricSheepAbility()
+                end
+
+                if State.autoGigatonDummy
+                    and isPlayerAlive() then
+
+                    if CombatFeatures.isPlayerMoving() then
+                        CombatFeatures.stationarySince =
+                            nil
+
+                        CombatFeatures.gigatonActive =
+                            false
+
+                        if CombatFeatures.dummyModel
+                            and CombatFeatures.dummyModel.Parent == workspace
+                            and not CombatFeatures.dummyDestroyInProgress then
+
+                            task.spawn(
+                                CombatFeatures.destroyDummy
+                            )
+                        end
+                    else
+                        if not CombatFeatures.stationarySince then
+                            CombatFeatures.stationarySince =
+                                now
+                        end
+
+                        if now -
+                            CombatFeatures.stationarySince
+                            >= CONFIG.DUMMY_STATIONARY_DELAY then
+
+                            if not CombatFeatures.gigatonPrimed
+                                and not CombatFeatures.toolSwitching then
+
+                                task.spawn(
+                                    CombatFeatures.primeGigaton
+                                )
+
+                            elseif (
+                                not CombatFeatures.dummyModel
+                                or CombatFeatures.dummyModel.Parent ~= workspace
+                            )
+                                and not CombatFeatures.dummySetupInProgress
+                                and not CombatFeatures.dummyDestroyInProgress
+                                and not CombatFeatures.toolSwitching
+                                and now -
+                                    CombatFeatures.lastDummySetupAttempt
+                                    >= CONFIG.DUMMY_SETUP_RETRY_DELAY then
+
+                                CombatFeatures.lastDummySetupAttempt =
+                                    now
+
+                                task.spawn(
+                                    CombatFeatures.spawnDummyWithShield
+                                )
+
+                            elseif CombatFeatures.dummyReady then
+                                CombatFeatures.gigatonActive =
+                                    true
+                            end
+                        end
+                    end
+
+                    if CombatFeatures.gigatonActive
+                        and CombatFeatures.dummyReady
+                        and now -
+                            CombatFeatures.lastGigatonUse
+                            >= CONFIG.GIGATON_INTERVAL then
+
+                        local remote =
+                            CombatFeatures.getGigatonRemote()
+
+                        if remote then
+                            CombatFeatures.lastGigatonUse =
+                                now
+
+                            task.spawn(
+                                function()
+                                    local success =
+                                        pcall(
+                                            function()
+                                                remote:InvokeServer(
+                                                    "GigatonSlam"
+                                                )
+                                            end
+                                        )
+
+                                    if not success then
+                                        CombatFeatures.gigatonRemote =
+                                            nil
+
+                                        CombatFeatures.gigatonPrimed =
+                                            false
+                                    end
+                                end
+                            )
+                        else
+                            CombatFeatures.gigatonPrimed =
+                                false
+                        end
+                    end
+                else
+                    CombatFeatures.stationarySince =
+                        nil
+
+                    CombatFeatures.gigatonActive =
+                        false
+                end
+
+                task.wait(
+                    CONFIG.DUMMY_MONITOR_INTERVAL
+                )
+            end
+        end
+    )
+end
+
+function CombatFeatures.shutdown()
+    State.autoElectricSheepAbility =
+        false
+
+    State.autoGigatonDummy =
+        false
+
+    CombatFeatures.gigatonActive =
+        false
+
+    updateAutoElectricSheepAbility()
+    updateDummyGigatonFeature()
+
+    task.spawn(
+        CombatFeatures.destroyDummy
+    )
 end
 
 --// =========================================================
@@ -8994,6 +10197,221 @@ local function createSettingsWindow(
         end
     )
 
+
+    --=========================================================
+    -- Auto Electric Sheep Ability
+    --=========================================================
+
+    local function createAutomationToggle(
+        yPosition,
+        titleText,
+        hintText
+    )
+        local button =
+            createXPButton(
+                settingsContent,
+                UDim2.new(
+                    1,
+                    0,
+                    0,
+                    36
+                ),
+                UDim2.fromOffset(
+                    0,
+                    yPosition
+                ),
+                53,
+                false
+            )
+
+        local checkbox =
+            Instance.new("Frame")
+
+        checkbox.Size =
+            UDim2.fromOffset(
+                16,
+                16
+            )
+
+        checkbox.Position =
+            UDim2.fromOffset(
+                8,
+                10
+            )
+
+        checkbox.BackgroundColor3 =
+            Color3.fromRGB(
+                255,
+                255,
+                255
+            )
+
+        checkbox.BorderSizePixel =
+            1
+
+        checkbox.BorderColor3 =
+            XP.BorderDark
+
+        checkbox.ZIndex =
+            54
+
+        checkbox.Parent =
+            button
+
+        local check =
+            Instance.new("TextLabel")
+
+        check.BackgroundTransparency =
+            1
+
+        check.Size =
+            UDim2.fromScale(
+                1,
+                1
+            )
+
+        check.Font =
+            XP_FONT_UI_BOLD
+
+        check.Text =
+            "✓"
+
+        check.TextSize =
+            13
+
+        check.TextColor3 =
+            XP.GreenDark
+
+        check.TextXAlignment =
+            Enum.TextXAlignment.Center
+
+        check.TextYAlignment =
+            Enum.TextYAlignment.Center
+
+        check.ZIndex =
+            55
+
+        check.Parent =
+            checkbox
+
+        local title =
+            Instance.new("TextLabel")
+
+        title.BackgroundTransparency =
+            1
+
+        title.Position =
+            UDim2.fromOffset(
+                32,
+                1
+            )
+
+        title.Size =
+            UDim2.new(
+                1,
+                -40,
+                0,
+                18
+            )
+
+        title.Font =
+            XP_FONT_UI_BOLD
+
+        title.Text =
+            titleText
+
+        title.TextSize =
+            12
+
+        title.TextColor3 =
+            XP.Text
+
+        title.TextXAlignment =
+            Enum.TextXAlignment.Left
+
+        title.ZIndex =
+            54
+
+        title.Parent =
+            button
+
+        local hint =
+            Instance.new("TextLabel")
+
+        hint.BackgroundTransparency =
+            1
+
+        hint.Position =
+            UDim2.fromOffset(
+                32,
+                18
+            )
+
+        hint.Size =
+            UDim2.new(
+                1,
+                -40,
+                0,
+                13
+            )
+
+        hint.Font =
+            XP_FONT_UI
+
+        hint.Text =
+            hintText
+
+        hint.TextSize =
+            10
+
+        hint.TextColor3 =
+            XP.TextSecondary
+
+        hint.TextXAlignment =
+            Enum.TextXAlignment.Left
+
+        hint.ZIndex =
+            54
+
+        hint.Parent =
+            button
+
+        return button, check
+    end
+
+    autoSheepAbilityButton,
+    autoSheepAbilityCheck =
+        createAutomationToggle(
+            123,
+            "Auto Electric Sheep Ability",
+            "Automatically use Dreamstate every 40 seconds"
+        )
+
+    autoSheepAbilityButton.MouseButton1Click:Connect(
+        function()
+            CombatFeatures.setAutoElectricSheepEnabled(
+                not State.autoElectricSheepAbility
+            )
+        end
+    )
+
+    dummyGigatonButton,
+    dummyGigatonCheck =
+        createAutomationToggle(
+            164,
+            "Auto Dummy + Gigaton",
+            "Runs while standing still; resets when you move"
+        )
+
+    dummyGigatonButton.MouseButton1Click:Connect(
+        function()
+            CombatFeatures.setDummyGigatonEnabled(
+                not State.autoGigatonDummy
+            )
+        end
+    )
+
+
     --=========================================================
     -- Furniture Type Setting
     --=========================================================
@@ -9007,7 +10425,7 @@ local function createSettingsWindow(
     furnitureTypeLabel.Position =
         UDim2.fromOffset(
             8,
-            127
+            209
         )
 
     furnitureTypeLabel.Size =
@@ -9054,7 +10472,7 @@ local function createSettingsWindow(
     furnitureTypeButton.Position =
         UDim2.fromOffset(
             0,
-            148
+            230
         )
 
     furnitureTypeButton.BackgroundColor3 =
@@ -9213,7 +10631,7 @@ local function createSettingsWindow(
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            184
+            257
         )
 
     --// Windows XP drop list: white list with a 1px black outline.
@@ -11473,6 +12891,7 @@ local function createMainWindow(
 
             destroyFurniturePreview()
 
+            CombatFeatures.shutdown()
             ESheep.shutdown()
 
             setResizeCursor(
@@ -11684,6 +13103,8 @@ local function createGUI()
     updateTarget()
     updateAutoEquip()
     updateElectricSheepCheat()
+    updateAutoElectricSheepAbility()
+    updateDummyGigatonFeature()
 
     mainWindow.Size =
         UDim2.fromOffset(
@@ -11984,6 +13405,30 @@ function API.GetElectricSheepCheat()
     return State.electricSheepCheat
 end
 
+function API.SetAutoElectricSheepAbility(
+    enabled
+)
+    return CombatFeatures.setAutoElectricSheepEnabled(
+        enabled == true
+    )
+end
+
+function API.GetAutoElectricSheepAbility()
+    return State.autoElectricSheepAbility
+end
+
+function API.SetAutoGigatonDummy(
+    enabled
+)
+    return CombatFeatures.setDummyGigatonEnabled(
+        enabled == true
+    )
+end
+
+function API.GetAutoGigatonDummy()
+    return State.autoGigatonDummy
+end
+
 function API.HasTrepidTerror()
 
     return hasTrepidTerror()
@@ -12017,6 +13462,18 @@ function API.GetStatus()
 
         ElectricSheepCheat =
             State.electricSheepCheat,
+
+        AutoElectricSheepAbility =
+            State.autoElectricSheepAbility,
+
+        AutoGigatonDummy =
+            State.autoGigatonDummy,
+
+        DummyReady =
+            CombatFeatures.dummyReady,
+
+        GigatonActive =
+            CombatFeatures.gigatonActive,
 
         HasTrepidTerror =
             hasTrepidTerror(),
@@ -12156,6 +13613,7 @@ characterAddedConnection =
                 nil
 
             ESheep.setupCharacter(character)
+            CombatFeatures.resetCharacterState()
 
             State.playerAlive =
                 false
@@ -12202,6 +13660,10 @@ updateStatus()
 updateTarget()
 updateAutoEquip()
 updateElectricSheepCheat()
+updateAutoElectricSheepAbility()
+updateDummyGigatonFeature()
+
+CombatFeatures.startLoops()
 
 task.spawn(
     function()
@@ -12232,6 +13694,7 @@ task.spawn(
 
             if State.autoEquip
                 and State.playerAlive
+                and not CombatFeatures.toolSwitching
                 and now -
                     cache.lastAutoEquipCheck
                     >= CONFIG.AUTO_EQUIP_CHECK_INTERVAL then
@@ -12324,6 +13787,8 @@ task.spawn(
             updateTarget()
             updateAutoEquip()
             updateElectricSheepCheat()
+            updateAutoElectricSheepAbility()
+            updateDummyGigatonFeature()
 
             if furnitureWindow
                 and furnitureWindow.Visible then
