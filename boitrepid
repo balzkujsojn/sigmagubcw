@@ -49,7 +49,14 @@ local CONFIG = {
     DUMMY_MONITOR_INTERVAL = 0.1,
     GIGATON_TOOL_NAME = "Gigaton Hammer",
     GIGATON_REMOTE_NAME = "RemoteFunction",
-    GIGATON_INTERVAL = 1
+    GIGATON_INTERVAL = 1,
+    ARBITRATION_TOOL_NAME = "Arbitration",
+    ARBITRATION_REMOTE_NAME = "RemoteFunction",
+    ARBITRATION_COOLDOWN = 60,
+    ANGLER_TOOL_NAME = "Angler's Legacy",
+    ANGLER_REMOTE_NAME = "RemoteFunction",
+    AUTO_LURE_MIN_HEALTH = 1000000,
+    AUTO_LURE_COOLDOWN = 20
 }
 
 local IGNORE_ENEMIES = {
@@ -148,7 +155,11 @@ local State = {
     electricSheepCheat = false,
     autoElectricSheepAbility = false,
     lastAutoElectricSheepUse = 0,
-    autoGigatonDummy = false
+    autoGigatonDummy = false,
+    autoArbBuff = false,
+    lastAutoArbBuffUse = 0,
+    autoLure = false,
+    lastAutoLureUse = 0
 }
 
 TrepidHub = {
@@ -174,7 +185,14 @@ CombatFeatures = {
     lastDummySetupAttempt = 0,
     lastDummyDestroyAttempt = 0,
     lastGigatonUse = 0,
-    preDummyGigatonTool = nil
+    preDummyGigatonTool = nil,
+    arbitrationRemote = nil,
+    arbitrationPrimed = false,
+    arbitrationUseInProgress = false,
+    arbWasFiring = false,
+    anglerRemote = nil,
+    anglerPrimed = false,
+    lureUseInProgress = false
 }
 
 --// =========================================================
@@ -299,13 +317,13 @@ local MAIN_MINIMIZED_HEIGHT = 31
 --// =========================================================
 
 local SETTINGS_DEFAULT_WIDTH = 270
-local SETTINGS_DEFAULT_HEIGHT = 380
+local SETTINGS_DEFAULT_HEIGHT = 462
 
 local SETTINGS_MIN_WIDTH = 220
-local SETTINGS_MIN_HEIGHT = 320
+local SETTINGS_MIN_HEIGHT = 402
 
 local SETTINGS_MAX_WIDTH = 500
-local SETTINGS_MAX_HEIGHT = 420
+local SETTINGS_MAX_HEIGHT = 540
 
 --// =========================================================
 --// Furniture Window
@@ -843,7 +861,7 @@ local function openFurnitureTypeDropdown()
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            257
+            339
         )
 
     furnitureTypeDropdown.Size =
@@ -4659,6 +4677,40 @@ local function selectTarget()
         false
     )
 
+    local currentTarget =
+        State.currentTarget
+
+    if currentTarget
+        and currentTarget.Model
+        and currentTarget.Model.Parent == workspace
+        and currentTarget.Humanoid
+        and currentTarget.Humanoid.Parent
+        and currentTarget.Humanoid.Health > 0 then
+
+        local currentPart =
+            currentTarget.TargetPart
+
+        if not currentPart
+            or not currentPart.Parent then
+
+            currentPart =
+                getTargetPart(
+                    currentTarget.Model
+                )
+
+            currentTarget.TargetPart =
+                currentPart
+        end
+
+        if currentPart then
+
+            currentTarget.Position =
+                currentPart.Position
+
+            return currentTarget
+        end
+    end
+
     local character =
         player.Character
 
@@ -4673,10 +4725,13 @@ local function selectTarget()
         and humanoidRootPart.Position
         or nil
 
-    local closestEnemy =
+    local selectedEnemy =
         nil
 
-    local closestDistanceSquared =
+    local selectedHealth =
+        -math.huge
+
+    local selectedDistanceSquared =
         math.huge
 
     for _, model in ipairs(
@@ -4718,33 +4773,47 @@ local function selectTarget()
                 data.Position =
                     position
 
-                if not playerPos then
-                    return data
-                end
-
-                local delta =
-                    position -
-                    playerPos
+                local health =
+                    data.Humanoid.Health
 
                 local distanceSquared =
-                    delta:Dot(
-                        delta
-                    )
+                    math.huge
 
-                if distanceSquared
-                    < closestDistanceSquared then
+                if playerPos then
 
-                    closestDistanceSquared =
+                    local delta =
+                        position -
+                        playerPos
+
+                    distanceSquared =
+                        delta:Dot(
+                            delta
+                        )
+                end
+
+                if health >
+                    selectedHealth
+                    or (
+                        health ==
+                        selectedHealth
+                        and distanceSquared <
+                        selectedDistanceSquared
+                    ) then
+
+                    selectedHealth =
+                        health
+
+                    selectedDistanceSquared =
                         distanceSquared
 
-                    closestEnemy =
+                    selectedEnemy =
                         data
                 end
             end
         end
     end
 
-    return closestEnemy
+    return selectedEnemy
 end
 
 --// =========================================================
@@ -5061,6 +5130,24 @@ function updateDummyGigatonFeature()
 
     dummyGigatonCheck.Visible =
         State.autoGigatonDummy == true
+end
+
+function updateAutoArbBuff()
+    if not autoArbBuffCheck then
+        return
+    end
+
+    autoArbBuffCheck.Visible =
+        State.autoArbBuff == true
+end
+
+function updateAutoLure()
+    if not autoLureCheck then
+        return
+    end
+
+    autoLureCheck.Visible =
+        State.autoLure == true
 end
 
 --// =========================================================
@@ -6436,6 +6523,680 @@ function CombatFeatures.setDummyGigatonEnabled(
     return true
 end
 
+function CombatFeatures.showArbitrationMissingError()
+    if gui
+        and not guiClosed then
+
+        createErrorWindow(
+            "Arbitration was not found in your inventory."
+        )
+    end
+end
+
+function CombatFeatures.getArbitrationRemote()
+    if CombatFeatures.arbitrationRemote
+        and CombatFeatures.arbitrationRemote.Parent then
+
+        return CombatFeatures.arbitrationRemote
+    end
+
+    CombatFeatures.arbitrationRemote =
+        nil
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.ARBITRATION_TOOL_NAME
+        )
+
+    if not tool then
+        return nil
+    end
+
+    local remote =
+        tool:FindFirstChild(
+            CONFIG.ARBITRATION_REMOTE_NAME
+        )
+
+    if remote
+        and remote:IsA(
+            "RemoteFunction"
+        ) then
+
+        CombatFeatures.arbitrationRemote =
+            remote
+
+        return remote
+    end
+
+    return nil
+end
+
+function CombatFeatures.restoreExactTool(
+    previousTool
+)
+    local character =
+        player.Character
+
+    local humanoid =
+        character
+        and character:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    local backpack =
+        player:FindFirstChildOfClass(
+            "Backpack"
+        )
+
+    if not character
+        or not humanoid
+        or humanoid.Health <= 0 then
+
+        return
+    end
+
+    if previousTool
+        and previousTool:IsA("Tool") then
+
+        if previousTool.Parent == character then
+            return
+        end
+
+        if previousTool.Parent == backpack then
+            pcall(
+                function()
+                    humanoid:EquipTool(
+                        previousTool
+                    )
+                end
+            )
+        end
+
+        return
+    end
+
+    pcall(
+        function()
+            humanoid:UnequipTools()
+        end
+    )
+end
+
+function CombatFeatures.primeArbitration()
+    if CombatFeatures.arbitrationPrimed
+        and CombatFeatures.getArbitrationRemote() then
+
+        return true
+    end
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.ARBITRATION_TOOL_NAME
+        )
+
+    if not tool then
+        return false
+    end
+
+    local waitDeadline =
+        os.clock() + 1.5
+
+    while CombatFeatures.toolSwitching
+        and os.clock() < waitDeadline do
+
+        task.wait(0.03)
+    end
+
+    if CombatFeatures.toolSwitching then
+        return false
+    end
+
+    local character =
+        player.Character
+
+    local previousTool =
+        character
+        and character:FindFirstChildOfClass(
+            "Tool"
+        )
+
+    CombatFeatures.toolSwitching =
+        true
+
+    local equipped =
+        CombatFeatures.equipNamedTool(
+            CONFIG.ARBITRATION_TOOL_NAME
+        )
+
+    local success =
+        false
+
+    if equipped then
+        local remote =
+            equipped:FindFirstChild(
+                CONFIG.ARBITRATION_REMOTE_NAME
+            )
+
+        if remote
+            and remote:IsA(
+                "RemoteFunction"
+            ) then
+
+            CombatFeatures.arbitrationRemote =
+                remote
+
+            CombatFeatures.arbitrationPrimed =
+                true
+
+            success =
+                true
+        end
+    end
+
+    task.wait(0.05)
+
+    CombatFeatures.restoreExactTool(
+        previousTool
+    )
+
+    CombatFeatures.toolSwitching =
+        false
+
+    return success
+end
+
+function CombatFeatures.useArbitrationBuff()
+    if CombatFeatures.arbitrationUseInProgress
+        or not State.autoArbBuff
+        or not State.isRunning
+        or not State.shootingEnabled
+        or not isPlayerAlive() then
+
+        return false
+    end
+
+    CombatFeatures.arbitrationUseInProgress =
+        true
+
+    if not CombatFeatures.arbitrationPrimed then
+        if not CombatFeatures.primeArbitration() then
+            CombatFeatures.arbitrationUseInProgress =
+                false
+
+            return false
+        end
+    end
+
+    local remote =
+        CombatFeatures.getArbitrationRemote()
+
+    if not remote then
+        CombatFeatures.arbitrationPrimed =
+            false
+
+        CombatFeatures.arbitrationUseInProgress =
+            false
+
+        return false
+    end
+
+    local character =
+        player.Character
+
+    if not character then
+        CombatFeatures.arbitrationUseInProgress =
+            false
+
+        return false
+    end
+
+    local torso =
+        character:FindFirstChild(
+            "Torso"
+        )
+        or character:FindFirstChild(
+            "UpperTorso"
+        )
+
+    local root =
+        character:FindFirstChild(
+            "HumanoidRootPart"
+        )
+
+    if not torso
+        or not torso:IsA("BasePart") then
+
+        CombatFeatures.arbitrationUseInProgress =
+            false
+
+        return false
+    end
+
+    local position =
+        root
+        and root.Position
+        or torso.Position
+
+    local success =
+        pcall(
+            function()
+                remote:InvokeServer(
+                    "timemanipulation",
+                    {
+                        position,
+                        torso
+                    }
+                )
+            end
+        )
+
+    if success then
+        State.lastAutoArbBuffUse =
+            os.clock()
+    else
+        CombatFeatures.arbitrationRemote =
+            nil
+    end
+
+    CombatFeatures.arbitrationUseInProgress =
+        false
+
+    return success
+end
+
+function CombatFeatures.setAutoArbBuffEnabled(
+    enabled
+)
+    enabled =
+        enabled == true
+
+    if enabled then
+        local tool =
+            CombatFeatures.findToolAnywhere(
+                CONFIG.ARBITRATION_TOOL_NAME
+            )
+
+        if not tool then
+            State.autoArbBuff =
+                false
+
+            updateAutoArbBuff()
+            CombatFeatures.showArbitrationMissingError()
+
+            return false
+        end
+
+        CombatFeatures.arbitrationPrimed =
+            false
+
+        CombatFeatures.arbitrationRemote =
+            nil
+
+        if not CombatFeatures.primeArbitration() then
+            State.autoArbBuff =
+                false
+
+            updateAutoArbBuff()
+
+            return false
+        end
+
+        State.autoArbBuff =
+            true
+
+        State.lastAutoArbBuffUse =
+            0
+
+        CombatFeatures.arbWasFiring =
+            false
+    else
+        State.autoArbBuff =
+            false
+
+        CombatFeatures.arbWasFiring =
+            false
+    end
+
+    updateAutoArbBuff()
+
+    return true
+end
+
+function CombatFeatures.showAnglerMissingError()
+    if gui
+        and not guiClosed then
+
+        createErrorWindow(
+            "Angler's Legacy was not found in your inventory."
+        )
+    end
+end
+
+function CombatFeatures.getAnglerRemote()
+    if CombatFeatures.anglerRemote
+        and CombatFeatures.anglerRemote.Parent then
+
+        return CombatFeatures.anglerRemote
+    end
+
+    CombatFeatures.anglerRemote =
+        nil
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.ANGLER_TOOL_NAME
+        )
+
+    if not tool then
+        return nil
+    end
+
+    local remote =
+        tool:FindFirstChild(
+            CONFIG.ANGLER_REMOTE_NAME
+        )
+
+    if remote
+        and remote:IsA(
+            "RemoteFunction"
+        ) then
+
+        CombatFeatures.anglerRemote =
+            remote
+
+        return remote
+    end
+
+    return nil
+end
+
+function CombatFeatures.primeAngler()
+    if CombatFeatures.anglerPrimed
+        and CombatFeatures.getAnglerRemote() then
+
+        return true
+    end
+
+    local tool =
+        CombatFeatures.findToolAnywhere(
+            CONFIG.ANGLER_TOOL_NAME
+        )
+
+    if not tool then
+        return false
+    end
+
+    local waitDeadline =
+        os.clock() + 1.5
+
+    while CombatFeatures.toolSwitching
+        and os.clock() < waitDeadline do
+
+        task.wait(0.03)
+    end
+
+    if CombatFeatures.toolSwitching then
+        return false
+    end
+
+    local character =
+        player.Character
+
+    local previousTool =
+        character
+        and character:FindFirstChildOfClass(
+            "Tool"
+        )
+
+    CombatFeatures.toolSwitching =
+        true
+
+    local equipped =
+        CombatFeatures.equipNamedTool(
+            CONFIG.ANGLER_TOOL_NAME
+        )
+
+    local success =
+        false
+
+    if equipped then
+        local remote =
+            equipped:FindFirstChild(
+                CONFIG.ANGLER_REMOTE_NAME
+            )
+
+        if remote
+            and remote:IsA(
+                "RemoteFunction"
+            ) then
+
+            CombatFeatures.anglerRemote =
+                remote
+
+            CombatFeatures.anglerPrimed =
+                true
+
+            success =
+                true
+        end
+    end
+
+    task.wait(0.05)
+
+    CombatFeatures.restoreExactTool(
+        previousTool
+    )
+
+    CombatFeatures.toolSwitching =
+        false
+
+    return success
+end
+
+function CombatFeatures.findHighestHealthLureTarget()
+    refreshEnemyCache(
+        false
+    )
+
+    local selected =
+        nil
+
+    local highestHealth =
+        CONFIG.AUTO_LURE_MIN_HEALTH - 1
+
+    for _, model in ipairs(
+        cache.enemyModels
+    ) do
+
+        if model
+            and model.Parent == workspace
+            and model.Name ~= "SimulationDummy" then
+
+            local data =
+                cache.enemyData[
+                    model
+                ]
+
+            local humanoid =
+                data
+                and data.Humanoid
+
+            if humanoid
+                and humanoid.Parent
+                and humanoid.Health >=
+                    CONFIG.AUTO_LURE_MIN_HEALTH then
+
+                local targetPart =
+                    data.TargetPart
+
+                if not targetPart
+                    or not targetPart.Parent then
+
+                    targetPart =
+                        getTargetPart(
+                            model
+                        )
+
+                    data.TargetPart =
+                        targetPart
+                end
+
+                if targetPart
+                    and humanoid.Health >
+                        highestHealth then
+
+                    highestHealth =
+                        humanoid.Health
+
+                    selected = {
+                        Model =
+                            model,
+
+                        Humanoid =
+                            humanoid,
+
+                        TargetPart =
+                            targetPart,
+
+                        Position =
+                            targetPart.Position
+                    }
+                end
+            end
+        end
+    end
+
+    return selected
+end
+
+function CombatFeatures.useAutoLure()
+    if CombatFeatures.lureUseInProgress
+        or not State.autoLure
+        or not State.isRunning
+        or not State.shootingEnabled
+        or not isPlayerAlive() then
+
+        return false
+    end
+
+    local now =
+        os.clock()
+
+    if State.lastAutoLureUse > 0
+        and now -
+        State.lastAutoLureUse
+        < CONFIG.AUTO_LURE_COOLDOWN then
+
+        return false
+    end
+
+    if not CombatFeatures.anglerPrimed then
+        if not CombatFeatures.primeAngler() then
+            return false
+        end
+    end
+
+    local target =
+        CombatFeatures.findHighestHealthLureTarget()
+
+    if not target then
+        return false
+    end
+
+    local remote =
+        CombatFeatures.getAnglerRemote()
+
+    if not remote then
+        return false
+    end
+
+    CombatFeatures.lureUseInProgress =
+        true
+
+    local success =
+        pcall(
+            function()
+                remote:InvokeServer(
+                    "lure",
+                    {
+                        target.Position
+                    }
+                )
+            end
+        )
+
+    if success then
+        State.lastAutoLureUse =
+            now
+    else
+        CombatFeatures.anglerRemote =
+            nil
+
+        CombatFeatures.anglerPrimed =
+            false
+    end
+
+    CombatFeatures.lureUseInProgress =
+        false
+
+    return success
+end
+
+function CombatFeatures.setAutoLureEnabled(
+    enabled
+)
+    enabled =
+        enabled == true
+
+    if enabled then
+        local tool =
+            CombatFeatures.findToolAnywhere(
+                CONFIG.ANGLER_TOOL_NAME
+            )
+
+        if not tool then
+            State.autoLure =
+                false
+
+            updateAutoLure()
+            CombatFeatures.showAnglerMissingError()
+
+            return false
+        end
+
+        CombatFeatures.anglerRemote =
+            nil
+
+        CombatFeatures.anglerPrimed =
+            false
+
+        if not CombatFeatures.primeAngler() then
+            State.autoLure =
+                false
+
+            updateAutoLure()
+
+            return false
+        end
+
+        State.autoLure =
+            true
+
+        State.lastAutoLureUse =
+            0
+    else
+        State.autoLure =
+            false
+
+        CombatFeatures.lureUseInProgress =
+            false
+    end
+
+    updateAutoLure()
+
+    return true
+end
+
 function CombatFeatures.resetCharacterState()
     CombatFeatures.toolSwitching =
         false
@@ -6475,6 +7236,27 @@ function CombatFeatures.resetCharacterState()
 
     CombatFeatures.preDummyGigatonTool =
         nil
+
+    CombatFeatures.arbitrationRemote =
+        nil
+
+    CombatFeatures.arbitrationPrimed =
+        false
+
+    CombatFeatures.arbitrationUseInProgress =
+        false
+
+    CombatFeatures.arbWasFiring =
+        false
+
+    CombatFeatures.anglerRemote =
+        nil
+
+    CombatFeatures.anglerPrimed =
+        false
+
+    CombatFeatures.lureUseInProgress =
+        false
 end
 
 function CombatFeatures.startLoops()
@@ -6490,6 +7272,56 @@ function CombatFeatures.startLoops()
             while not guiClosed do
                 local now =
                     os.clock()
+
+                local arbFiring =
+                    State.autoArbBuff
+                    and State.isRunning
+                    and State.shootingEnabled
+                    and isPlayerAlive()
+
+                if arbFiring then
+                    if not CombatFeatures.arbitrationPrimed
+                        and not CombatFeatures.toolSwitching then
+
+                        task.spawn(
+                            CombatFeatures.primeArbitration
+                        )
+                    end
+
+                    if (
+                        not CombatFeatures.arbWasFiring
+                        or State.lastAutoArbBuffUse <= 0
+                        or now -
+                            State.lastAutoArbBuffUse
+                            >= CONFIG.ARBITRATION_COOLDOWN
+                    ) then
+
+                        task.spawn(
+                            CombatFeatures.useArbitrationBuff
+                        )
+                    end
+                end
+
+                CombatFeatures.arbWasFiring =
+                    arbFiring
+
+                if State.autoLure
+                    and State.isRunning
+                    and State.shootingEnabled
+                    and isPlayerAlive() then
+
+                    if not CombatFeatures.anglerPrimed
+                        and not CombatFeatures.toolSwitching then
+
+                        task.spawn(
+                            CombatFeatures.primeAngler
+                        )
+                    end
+
+                    task.spawn(
+                        CombatFeatures.useAutoLure
+                    )
+                end
 
                 if State.autoElectricSheepAbility
                     and isPlayerAlive()
@@ -6624,11 +7456,25 @@ function CombatFeatures.shutdown()
     State.autoGigatonDummy =
         false
 
+    State.autoArbBuff =
+        false
+
+    State.autoLure =
+        false
+
     CombatFeatures.gigatonActive =
+        false
+
+    CombatFeatures.arbWasFiring =
+        false
+
+    CombatFeatures.lureUseInProgress =
         false
 
     updateAutoElectricSheepAbility()
     updateDummyGigatonFeature()
+    updateAutoArbBuff()
+    updateAutoLure()
 
     task.spawn(
         CombatFeatures.destroyDummy
@@ -10291,6 +11137,9 @@ local function createSettingsWindow(
         check.ZIndex =
             55
 
+        check.Visible =
+            false
+
         check.Parent =
             checkbox
 
@@ -10411,6 +11260,38 @@ local function createSettingsWindow(
         end
     )
 
+    autoArbBuffButton,
+    autoArbBuffCheck =
+        createAutomationToggle(
+            205,
+            "Auto Arb Buff",
+            "Use Arbitration buff while firing every 60 seconds"
+        )
+
+    autoArbBuffButton.MouseButton1Click:Connect(
+        function()
+            CombatFeatures.setAutoArbBuffEnabled(
+                not State.autoArbBuff
+            )
+        end
+    )
+
+    autoLureButton,
+    autoLureCheck =
+        createAutomationToggle(
+            246,
+            "Auto Lure",
+            "Use Angler's Legacy lure on the highest-health enemy (1M+ HP)"
+        )
+
+    autoLureButton.MouseButton1Click:Connect(
+        function()
+            CombatFeatures.setAutoLureEnabled(
+                not State.autoLure
+            )
+        end
+    )
+
 
     --=========================================================
     -- Furniture Type Setting
@@ -10425,7 +11306,7 @@ local function createSettingsWindow(
     furnitureTypeLabel.Position =
         UDim2.fromOffset(
             8,
-            209
+            291
         )
 
     furnitureTypeLabel.Size =
@@ -10472,7 +11353,7 @@ local function createSettingsWindow(
     furnitureTypeButton.Position =
         UDim2.fromOffset(
             0,
-            230
+            312
         )
 
     furnitureTypeButton.BackgroundColor3 =
@@ -10631,7 +11512,7 @@ local function createSettingsWindow(
     furnitureTypeDropdown.Position =
         UDim2.fromOffset(
             0,
-            257
+            339
         )
 
     --// Windows XP drop list: white list with a 1px black outline.
@@ -13105,6 +13986,8 @@ local function createGUI()
     updateElectricSheepCheat()
     updateAutoElectricSheepAbility()
     updateDummyGigatonFeature()
+    updateAutoArbBuff()
+    updateAutoLure()
 
     mainWindow.Size =
         UDim2.fromOffset(
@@ -13429,6 +14312,30 @@ function API.GetAutoGigatonDummy()
     return State.autoGigatonDummy
 end
 
+function API.SetAutoArbBuff(
+    enabled
+)
+    return CombatFeatures.setAutoArbBuffEnabled(
+        enabled == true
+    )
+end
+
+function API.GetAutoArbBuff()
+    return State.autoArbBuff
+end
+
+function API.SetAutoLure(
+    enabled
+)
+    return CombatFeatures.setAutoLureEnabled(
+        enabled == true
+    )
+end
+
+function API.GetAutoLure()
+    return State.autoLure
+end
+
 function API.HasTrepidTerror()
 
     return hasTrepidTerror()
@@ -13468,6 +14375,21 @@ function API.GetStatus()
 
         AutoGigatonDummy =
             State.autoGigatonDummy,
+
+        AutoArbBuff =
+            State.autoArbBuff,
+
+        LastAutoArbBuffUse =
+            State.lastAutoArbBuffUse,
+
+        ArbitrationPrimed =
+            CombatFeatures.arbitrationPrimed,
+
+        AutoLure =
+            State.autoLure,
+
+        LastAutoLureUse =
+            State.lastAutoLureUse,
 
         DummyReady =
             CombatFeatures.dummyReady,
@@ -13662,6 +14584,8 @@ updateAutoEquip()
 updateElectricSheepCheat()
 updateAutoElectricSheepAbility()
 updateDummyGigatonFeature()
+updateAutoArbBuff()
+updateAutoLure()
 
 CombatFeatures.startLoops()
 
